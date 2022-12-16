@@ -8,19 +8,14 @@
 
 mod model;
 
-use model::Model;
-use model::decision_stack::DecisionStack;
+use model::{Model, Clause};
 
 fn main() {
-    let mut clause1: Vec<i32> = vec![1, 2];
-    let mut clause2: Vec<i32> = vec![4];
-    let mut clause3: Vec<i32> = vec![5];
-    let clauses: Vec<&Vec<i32>> = vec![&clause1, &clause2,  &clause3];
+    let mut clause1: Clause = vec![1, 2];
+    let mut clause2: Clause = vec![4];
+    let mut clause3: Clause = vec![5, 4, 1, 2];
+    let clauses: Vec<Clause> = vec![clause1, clause2,  clause3];
 
-    let decision_stack = DecisionStack { ds : Vec::new() };
-    let mut model = Model { clauses: clauses, decision_stack: decision_stack, variables: vec![1, 2, 4, 5] };
+    let mut model: Model = Model::new(clauses);
 
-    model.solve();
-
-    // solve(clauses);
 }
