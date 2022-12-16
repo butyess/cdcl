@@ -1,22 +1,19 @@
-pub mod decision_stack;
-pub mod cvsids;
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use self::decision_stack::DecisionStack;
-use self::cvsids::CVSIDS;
+use super::decision_stack::DecisionStack;
+use super::cvsids::CVSIDS;
 
 pub type Lit = i32;
 pub type Clause = Vec<Lit>;
 
 pub struct Model {
     clauses: Vec<Rc<Clause>>,
-    variables: Vec<Rc<Lit>>,
+    variables: HashSet<Lit>,
 
-    variables_state: HashMap<Rc<Lit>, bool>, // assigned or not
-    unit_clauses: HashMap<Rc<Clause>, Rc<Lit>>,
+    variables_state: HashMap<Lit, bool>, // assigned or not
+    unit_clauses: HashMap<Rc<Clause>, Lit>,
     decision_stack: DecisionStack,
     vsids: CVSIDS,
 }
@@ -27,19 +24,21 @@ impl Model {
     }
 
     pub fn new(clauses: Vec<Clause>) -> Model {
-        let variables = Model::unique_variables(&clauses);
-        let variablesrc: Vec<Rc<Lit>> = variables.into_iter().map(Rc::new).collect();
 
-        let vsids: CVSIDS = CVSIDS::new(&variablesrc);
-        let vstate: HashMap<Rc<Lit>, bool> = variablesrc.iter().map(|x| (Rc::clone(x), false)).collect();
+        let variables: HashSet<Lit> = Model::unique_variables(&clauses);
+        let clauses: Vec<Rc<Clause>> = clauses.into_iter().map(Rc::new).collect();
+
+        let vsids: CVSIDS = CVSIDS::new(&variables);
+        let vstate: HashMap<Lit, bool> = variables.iter().map(|x| (Lit::clone(x), false)).collect();
+        let decision_stack: DecisionStack = DecisionStack::new(&clauses, &variables);
 
         Model {
-            clauses: clauses.into_iter().map(Rc::new).collect(),
-            variables: variablesrc,
+            clauses: clauses,
+            variables: variables,
 
             variables_state: vstate,
             unit_clauses: HashMap::new(),
-            decision_stack: DecisionStack::new(),
+            decision_stack: decision_stack,
             vsids: vsids,
         }
     }

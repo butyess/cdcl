@@ -7,6 +7,9 @@
 //       * "Model" is not the correct name (state = clauses || model)
 
 mod model;
+mod cvsids;
+mod decision_stack;
+mod watched_literals;
 
 use model::{Model, Clause};
 
