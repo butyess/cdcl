@@ -37,9 +37,8 @@ impl Model {
 
     pub fn unit_propagation(&mut self) -> Option<Rc<Clause>> {
         while let Some((clauserc, lit)) = self.unit_clauses.pop() {
-            dbg!(&clauserc);
             let out = self.decision_stack.propagate(&clauserc, lit);
-            dbg!(&out);
+            self.vsids.propagated_variable(u32::try_from(lit.abs()).unwrap());
             match out {
                 Left(mut units) => { self.unit_clauses.append(&mut units); }
                 Right(conflict) => { return Some(conflict); }
@@ -48,11 +47,11 @@ impl Model {
         None
     }
 
-    // fn make_decision(&mut self) {
-    //     let decided_lit = self.vsids.get_highest_score_variable();
-    //     let mut units = self.decision_stack.decide(decided_lit);
-    //     self.unit_clauses.append(&mut units);
-    // }
+    fn make_decision(&mut self) {
+        let decided_lit = self.vsids.get_highest_score_variable();
+        let mut units = self.decision_stack.decide(decided_lit);
+        self.unit_clauses.append(&mut units);
+    }
 
     /* 
     fn resolve_conflict(&mut self, clause: Rc<Clause>, lit: Rc<Lit>) {
