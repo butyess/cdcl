@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Neg;
 use std::rc::Rc;
 
 use either::{Left, Right};
@@ -53,14 +54,51 @@ impl Model {
         self.unit_clauses.append(&mut units);
     }
 
-    /* 
-    fn resolve_conflict(&mut self, clause: Rc<Clause>, lit: Rc<Lit>) {
-        1. resolve until assertion
-        2. learn
-        3. search level to backjump
-        4. backjump
+    fn resolution(&self, base: &Clause, with: &Rc<Clause>) -> Clause {
+        let mut result = Vec::new();
+
+        base.iter()
+            .filter(|l| !with.contains(&l.neg()))
+            .for_each(|l| result.push(*l));
+
+        with.iter()
+            .filter(|l| !base.contains(&l.neg()) & !base.contains(l))
+            .for_each(|l| result.push(*l));
+
+        result
     }
 
+    fn resolve_conflict(&mut self, orig_conflict: Rc<Clause>) {
+        // 1. resolve until assertion
+        let mut conflict: Clause = orig_conflict.to_vec();
+
+        let mut assertion_literal: i32 = 0;
+        loop {
+            match self.decision_stack.find_assertion_literal(&conflict) {
+                Some(al) => { assertion_literal = al; break; }
+                None => {
+                    let mut new_conflict = conflict.iter()
+                        .map(|x| self.decision_stack.find_justification(x))
+                        .filter_map(|x| x)
+                        .next()
+                        .map(|j| self.resolution(&conflict, j))
+                        .expect("No justification found in current level");
+
+                    conflict = new_conflict;
+                }
+            }
+        }
+
+        // 2. learn
+        let clauserc = Rc::new(conflict);
+        self.clauses.push(Rc::clone(&clauserc));
+        self.decision_stack.learn_clause(Rc::clone(&clauserc), &assertion_literal);
+
+        // 3. search level to backjump && 4. backjump
+        self.unit_clauses = self.decision_stack.backjump(&assertion_literal, Rc::clone(&clauserc));
+    }
+
+    /* 
     pub fn solve(&mut self) -> bool {
         if let Some(conflict) = self.unit_propagation() {
             return false;
@@ -73,9 +111,10 @@ impl Model {
             self.make_decision();
 
             if let Some(conflict) = self.unit_propagation() {
-                match self.resolve_conflict(conflict) {
-                    true => { continue; }
-                    false => { return false; }
+                if self.decision_stack.level() <= 1 {
+                    return false;
+                } else {
+                    self.resolve_conflict(conflict)
                 }
             }
         }

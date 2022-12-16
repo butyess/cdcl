@@ -49,15 +49,15 @@ fn lit_to_var(l: Lit) -> Var {
 impl DecisionStack {
     pub fn new(clauses: &Vec<Rc<Clause>>, variables: &HashSet<Var>) -> DecisionStack {
         let mut variables_state: HashMap<Var, VarState> = variables.iter()
-                                                               .map(|x| (x.clone(), VarState::Undefined))
-                                                               .collect();
+            .map(|x| (x.clone(), VarState::Undefined))
+            .collect();
         let mut sentinels: HashMap<Rc<Clause>, (Lit, Lit)> = clauses.iter()
-                                                                    .filter(|c| c.len() > 1)
-                                                                    .map(|c| (Rc::clone(c), (c[0], c[1])))
-                                                                    .collect();
+            .filter(|c| c.len() > 1)
+            .map(|c| (Rc::clone(c), (c[0], c[1])))
+            .collect();
         let mut attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)> = variables.iter()
-                                                                                              .map(|v| (v.clone(), (HashSet::new(), HashSet::new())))
-                                                                                              .collect();
+            .map(|v| (v.clone(), (HashSet::new(), HashSet::new())))
+            .collect();
 
         for (clause, (lit1, lit2)) in sentinels.iter() {
             for lit in [lit1, lit2] {
@@ -73,6 +73,10 @@ impl DecisionStack {
             attached_clauses: attached_clauses,
             variables_state: variables_state,
         }
+    }
+
+    pub fn level(&self) -> usize {
+        self.ds.len()
     }
 
     fn get_any_clause(&self, lit: Lit) -> Option<Rc<Clause>> {
@@ -185,6 +189,69 @@ impl DecisionStack {
     pub fn all_variables_assigned(&self) -> bool {
         self.variables_state.iter()
                             .all(|(_, s)| *s != VarState::Undefined)
+    }
+
+    pub fn find_assertion_literal(&self, clause: &Clause) -> Option<Lit> {
+        let lastlevel = self.ds.last()
+            .expect("No justification because no decision has been made");
+        
+        let lit_in_last_level: Vec<Lit> = lastlevel.iter()
+            .filter(|(l, _)| !clause.contains(l))
+            .map(|(l, _)| *l)
+            .collect();
+
+        match lit_in_last_level.len() {
+            0 => { panic!("No literal found in last level while checking for assertion clause"); }
+            1 => Some(*lit_in_last_level.first().unwrap()) ,
+            _ => None,
+        }
+    }
+
+    pub fn find_justification(&self, lit: &Lit) -> Option<&Rc<Clause>> {
+        let lastlevel = self.ds.last()
+            .expect("No justification because no decision has been made");
+
+        lastlevel.iter()
+            .filter(|(l, c)| *l == *lit)
+            .flat_map(|(l, c)| c)
+            .next()
+    }
+
+    pub fn learn_clause(&mut self, clause: Rc<Clause>, lit: &Lit) {
+        if clause.len() == 1 { return; }
+
+        // search for sentinels to watch: a learnt clause is surely conflict, and will
+        // become satisfied in the next step (that is a backjump), so it's important to
+        // watch the literal that is going to become true (the assertion literal), while
+        // the choice of the other literal is not important because they all are unsatisfied.
+        let other_watched_literal = if clause[0] == *lit { clause[1] } else { clause[0] };
+
+        // put sentinels in sentinels[clause]
+        self.sentinels.insert(Rc::clone(&clause), (*lit, other_watched_literal));
+
+        // put clause in attached_clause[s] for s in sentinels
+        for l in [*lit, other_watched_literal] {
+            let (pos, neg) =
+                self.attached_clauses.get_mut(&lit_to_var(l)).unwrap();
+            (if l > 0 { pos } else { neg }).insert(Rc::clone(&clause));
+        }
+    }
+
+    pub fn revert_literal(&mut self, lit: &Lit) {
+
+    }
+
+    pub fn backjump(&mut self, lit: &Lit, clause: Rc<Clause>) -> Vec<(Rc<Clause>, Lit)> {
+        let mut unit_clauses: Vec<(Rc<Clause>, Lit)> = Vec::new();
+
+        let non_assert_literals: HashSet<Lit> = clause.iter()
+            .filter(|&l| *l != *lit)
+            .map(i32::clone)
+            .collect();
+
+        // TODO
+
+        unit_clauses
     }
 
 }
