@@ -90,6 +90,10 @@ impl Model {
         }
 
         // 2. learn
+        for lit in conflict.iter() {
+            self.vsids.bump(&(lit.abs() as u32));
+        }
+
         let clauserc = Rc::new(conflict);
         self.clauses.push(Rc::clone(&clauserc));
         self.decision_stack.learn_clause(Rc::clone(&clauserc), &assertion_literal);
@@ -127,6 +131,8 @@ impl Model {
             self.make_decision();
 
             if let Some(conflict) = self.unit_propagation() {
+                self.vsids.decay();
+
                 if self.decision_stack.level() <= 1 {
                     return false;
                 } else {
