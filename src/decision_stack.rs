@@ -237,21 +237,46 @@ impl DecisionStack {
         }
     }
 
-    pub fn revert_literal(&mut self, lit: &Lit) {
-
-    }
-
-    pub fn backjump(&mut self, lit: &Lit, clause: Rc<Clause>) -> Vec<(Rc<Clause>, Lit)> {
-        let mut unit_clauses: Vec<(Rc<Clause>, Lit)> = Vec::new();
-
+    pub fn search_backjump(&mut self, lit: &Lit, clause: &Rc<Clause>) -> Vec<Lit> {
         let non_assert_literals: HashSet<Lit> = clause.iter()
             .filter(|&l| *l != *lit)
             .map(i32::clone)
             .collect();
+            
+        let mut found_lit: bool = false;
+        let mut reverted_literals: Vec<Lit> = Vec::new();
 
-        // TODO
+        while let Some(mut last_level) = self.ds.pop() {
 
-        unit_clauses
+            // cannot revert in the last level because its only made of propagations
+            if self.ds.len() == 0 {
+                assert!(found_lit, "reverting in the last level, but conflict literal still not found");
+                self.ds.push(last_level);
+                break;
+            }
+
+            while let Some((last_lit, c)) = last_level.pop() {
+                found_lit = last_lit == *lit;
+                if non_assert_literals.contains(&last_lit) {
+                    if !found_lit {
+                        panic!("Found non assertion literal before the conflict literal in the decision stack");
+                    } else {
+                        last_level.push((last_lit, c));
+                        break;
+                    }
+                } else {
+                    reverted_literals.push(last_lit);
+                }
+            }
+
+            if last_level.len() > 0 {
+                self.ds.push(last_level);
+                break;
+            }
+        }
+
+        reverted_literals
+
     }
 
 }

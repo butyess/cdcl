@@ -72,7 +72,7 @@ impl Model {
         // 1. resolve until assertion
         let mut conflict: Clause = orig_conflict.to_vec();
 
-        let mut assertion_literal: i32 = 0;
+        let mut assertion_literal: i32;
         loop {
             match self.decision_stack.find_assertion_literal(&conflict) {
                 Some(al) => { assertion_literal = al; break; }
@@ -94,20 +94,36 @@ impl Model {
         self.clauses.push(Rc::clone(&clauserc));
         self.decision_stack.learn_clause(Rc::clone(&clauserc), &assertion_literal);
 
-        // 3. search level to backjump && 4. backjump
-        self.unit_clauses = self.decision_stack.backjump(&assertion_literal, Rc::clone(&clauserc));
+        // 3. backjump: search level in decision stack,
+        //              revert decision of all literals after the level,
+        //              propagate the negated of assertion literal
+
+        let rev_lit = self.decision_stack.search_backjump(&assertion_literal, &clauserc);
+
+        for l in rev_lit {
+            self.vsids.revert_variable(Var::try_from(l.abs()).unwrap())
+        }
+
+        match self.decision_stack.propagate(&clauserc, -assertion_literal) {
+            Left(units) => {
+                self.unit_clauses = units;
+            }
+            Right(conflict) => {
+                panic!("Got conflict right after backjumping");
+            }
+        }
+
     }
 
-    /* 
     pub fn solve(&mut self) -> bool {
         if let Some(conflict) = self.unit_propagation() {
             return false;
         }
 
-        while !self.ds.all_variables_assigned() {
+        while !self.decision_stack.all_variables_assigned() {
 
-            // a decision never bring to a conflict, given that the last stack
-            // operations were unit propagations
+            // a decision never bring to a conflict, given that the last
+            // operation has been unit propagations
             self.make_decision();
 
             if let Some(conflict) = self.unit_propagation() {
@@ -121,7 +137,6 @@ impl Model {
 
         return true;
     }
-    */
 
 }
 

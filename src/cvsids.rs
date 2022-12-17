@@ -39,9 +39,9 @@ impl CVSIDS {
         self.variables.remove(&var);
     }
 
-    // pub fn revert_variable(&mut self, var: Var) {
-    //     self.variables.push(var, 0);
-    // }
+    pub fn revert_variable(&mut self, var: Var) {
+        self.variables.push(var, 0);
+    }
 
     // pub fn decay(&mut self) {}
 
