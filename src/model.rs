@@ -72,12 +72,12 @@ impl Model {
         // 1. resolve until assertion
         let mut conflict: Clause = orig_conflict.to_vec();
 
-        let mut assertion_literal: i32;
+        let assertion_literal: i32;
         loop {
             match self.decision_stack.find_assertion_literal(&conflict) {
                 Some(al) => { assertion_literal = al; break; }
                 None => {
-                    let mut new_conflict = conflict.iter()
+                    let new_conflict = conflict.iter()
                         .map(|x| self.decision_stack.find_justification(x))
                         .filter_map(|x| x)
                         .next()
@@ -109,28 +109,23 @@ impl Model {
         }
 
         match self.decision_stack.propagate(&clauserc, -assertion_literal) {
-            Left(units) => {
-                self.unit_clauses = units;
-            }
-            Right(conflict) => {
-                panic!("Got conflict right after backjumping");
-            }
+            Left(units) => { self.unit_clauses = units; }
+            Right(_conflict) => { panic!("Got conflict right after backjumping"); }
         }
-
     }
 
     pub fn solve(&mut self) -> bool {
-        if let Some(conflict) = self.unit_propagation() {
+        if let Some(_conflict) = self.unit_propagation() {
             return false;
         }
 
         while !self.decision_stack.all_variables_assigned() {
-
             // a decision never bring to a conflict, given that the last
             // operation has been unit propagations
             self.make_decision();
 
             if let Some(conflict) = self.unit_propagation() {
+
                 self.vsids.decay();
 
                 if self.decision_stack.level() <= 1 {

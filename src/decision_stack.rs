@@ -42,16 +42,24 @@ impl fmt::Display for DecisionStack {
     }
 }
 
-fn lit_to_var(l: Lit) -> Var {
+fn lit_to_var(l: &Lit) -> Var {
     Var::try_from(l.abs()).unwrap()
+}
+
+fn var_state_from_lit(l: &Lit) -> VarState {
+    match l.signum() {
+        1 => VarState::Positive,
+        -1 => VarState::Negative,
+        _ => { panic!("Found literal set to zero") }
+    }
 }
 
 impl DecisionStack {
     pub fn new(clauses: &Vec<Rc<Clause>>, variables: &HashSet<Var>) -> DecisionStack {
-        let mut variables_state: HashMap<Var, VarState> = variables.iter()
+        let variables_state: HashMap<Var, VarState> = variables.iter()
             .map(|x| (x.clone(), VarState::Undefined))
             .collect();
-        let mut sentinels: HashMap<Rc<Clause>, (Lit, Lit)> = clauses.iter()
+        let sentinels: HashMap<Rc<Clause>, (Lit, Lit)> = clauses.iter()
             .filter(|c| c.len() > 1)
             .map(|c| (Rc::clone(c), (c[0], c[1])))
             .collect();
@@ -61,7 +69,7 @@ impl DecisionStack {
 
         for (clause, (lit1, lit2)) in sentinels.iter() {
             for lit in [lit1, lit2] {
-                if let Some((pos, neg)) = attached_clauses.get_mut(&lit_to_var(*lit)) {
+                if let Some((pos, neg)) = attached_clauses.get_mut(&lit_to_var(lit)) {
                     (if *lit > 0 { pos } else { neg }).insert(Rc::clone(clause));
                 }
             }
@@ -79,15 +87,28 @@ impl DecisionStack {
         self.ds.len()
     }
 
-    fn get_any_clause(&self, lit: Lit) -> Option<Rc<Clause>> {
-        let (pos, neg) = self.attached_clauses.get(&lit_to_var(lit)).unwrap();
-        let source = if lit.is_positive() { pos } else { neg };
+    // fn get_any_clause(&self, lit: Lit) -> Option<Rc<Clause>> {
+    //     let (pos, neg) = self.attached_clauses.get(&lit_to_var(&lit)).unwrap();
+    //     let source = if lit.is_positive() { pos } else { neg };
 
-        source.iter().next().and_then(|c| Some(Rc::clone(c)))
+    //     source.iter().next().and_then(|c| Some(Rc::clone(c)))
+    // }
+
+    fn get_clauses(&self, lit: Lit) -> Vec<Rc<Clause>> {
+        let (pos, neg) = self.attached_clauses.get(&lit_to_var(&lit)).unwrap();
+        if lit.is_positive() {
+            pos.iter()
+               .map(|c| Rc::clone(c))
+               .collect()
+        } else {
+            neg.iter()
+                .map(|c| Rc::clone(c))
+                .collect()
+        }
     }
 
     fn get_mut_clauses(&mut self, lit: Lit) -> &mut HashSet<Rc<Clause>> {
-        let (pos, neg) = self.attached_clauses.get_mut(&lit_to_var(lit)).unwrap();
+        let (pos, neg) = self.attached_clauses.get_mut(&lit_to_var(&lit)).unwrap();
         if lit.is_positive() {
             pos
         } else {
@@ -107,7 +128,7 @@ impl DecisionStack {
     }
 
     fn lit_state(&self, lit: Lit) -> LitState {
-        match self.variables_state.get(&lit_to_var(lit)).unwrap() {
+        match self.variables_state.get(&lit_to_var(&lit)).unwrap() {
             VarState::Positive => if lit.is_positive() { LitState::Satisfied } else { LitState::Unsatisfied },
             VarState::Negative => if lit.is_negative() { LitState::Satisfied } else { LitState::Unsatisfied },
             VarState::Undefined => LitState::Unknown,
@@ -136,12 +157,16 @@ impl DecisionStack {
                 // search for a new not unsatisfied literal (satisfied or not assigned) in the clause
                 // if you find it, replace it with -lit as a watched literal
                 // if you don't find it, match the other literal:
-                    // if the other literal is undefined, then we have a new unit clause, and the unit literal is the other literal
+                    // if the other literal is undefined, then we have a new unit clause, and
+                    //  the unit literal is the other literal
                     // if the other literal is false, then we have a conflict clause
 
         let mut unit_clauses: Vec<(Rc<Clause>, Lit)> = Vec::new();
 
-        while let Some(clause) = self.get_any_clause(-lit) {
+        let neg_clauses = self.get_clauses(-lit);
+
+        // while let Some(clause) = self.get_any_clause(-lit) {
+        for clause in neg_clauses {
             let other_lit = self.get_other_watched_sentinel(&clause, -lit);
             match self.lit_state(other_lit) {
                 LitState::Satisfied => { continue; },
@@ -167,28 +192,36 @@ impl DecisionStack {
 
     pub fn propagate(&mut self, clause: &Rc<Clause>, lit: Lit) -> Either<Vec<(Rc<Clause>, Lit)>, Rc<Clause>> {
         match self.ds.last_mut() {
-            Some(mut last_level) => { last_level.push((lit, Some(Rc::clone(clause)))); },
+            Some(last_level) => { last_level.push((lit, Some(Rc::clone(clause)))); },
             None => { self.ds.push(vec![(lit, Some(Rc::clone(clause)))]); }
         }
+
+        self.variables_state.insert(lit_to_var(&lit), var_state_from_lit(&lit));
 
         self.made_decision(lit)
     }
 
     pub fn decide(&mut self, lit: Lit) -> Vec<(Rc<Clause>, Lit)> {
         match self.ds.last_mut() {
-            Some(mut last_level) => { last_level.push((lit, None)); }
+            Some(last_level) => { last_level.push((lit, None)); }
             None => { self.ds.push(vec![(lit, None)]); }
         }
 
+        self.variables_state.insert(lit_to_var(&lit), var_state_from_lit(&lit));
+
         match self.made_decision(lit) {
-            Left(units) => units,
+            Left(units) => { units }
             _ => { panic!("Got a conflict after a decision"); }
         }
+
     }
 
     pub fn all_variables_assigned(&self) -> bool {
         self.variables_state.iter()
-                            .all(|(_, s)| *s != VarState::Undefined)
+                            .all(|(_, s)| match *s {
+                                VarState::Undefined => false,
+                                _ => true,
+                            })
     }
 
     pub fn find_assertion_literal(&self, clause: &Clause) -> Option<Lit> {
@@ -212,8 +245,8 @@ impl DecisionStack {
             .expect("No justification because no decision has been made");
 
         lastlevel.iter()
-            .filter(|(l, c)| *l == *lit)
-            .flat_map(|(l, c)| c)
+            .filter(|(l, _c)| *l == *lit)
+            .flat_map(|(_l, c)| c)
             .next()
     }
 
@@ -232,7 +265,7 @@ impl DecisionStack {
         // put clause in attached_clause[s] for s in sentinels
         for l in [*lit, other_watched_literal] {
             let (pos, neg) =
-                self.attached_clauses.get_mut(&lit_to_var(l)).unwrap();
+                self.attached_clauses.get_mut(&lit_to_var(&l)).unwrap();
             (if l > 0 { pos } else { neg }).insert(Rc::clone(&clause));
         }
     }

@@ -48,7 +48,7 @@ impl CVSIDS {
     }
 
     fn scale_all_priorities(&mut self, amount: u32) {
-        for (v, p) in self.variables.iter_mut() {
+        for (_v, p) in self.variables.iter_mut() {
             *p = p.checked_shr(amount).unwrap();
         }
     }
