@@ -29,14 +29,15 @@ pub struct DecisionStack {
 impl fmt::Display for DecisionStack {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for level in self.ds.iter() {
+            write!(f, "[")?;
             for decision in level.iter() {
                 match &decision.1 {
-                    Some(clause) => { write!(f, "{} ({:?}), ", decision.0, *clause)?; },
-                    None => { write!(f, "{}", decision.0)?; }
+                    Some(clause) => { write!(f, "{}, ", decision.0)?; },
+                    // Some(clause) => { write!(f, "{} ({:?}), ", decision.0, *clause)?; },
+                    None => { write!(f, "{}, ", decision.0)?; }
                 }
             }
-
-            writeln!(f, "")?;
+            write!(f, "]\n")?;
         }
         write!(f, "")
     }
@@ -179,7 +180,14 @@ impl DecisionStack {
                         None => {
                             match self.lit_state(other_lit) {
                                 LitState::Unknown => { unit_clauses.push((Rc::clone(&clause), other_lit)); },
-                                LitState::Unsatisfied => { return Right(Rc::clone(&clause)); }
+                                LitState::Unsatisfied => {
+                                    println!("Found clause: {:?}, its state is {:?}", &clause, clause.iter()
+                                        .map(|l| self.lit_state(*l))
+                                        .collect::<Vec<LitState>>()
+                                    );
+                                    println!("Decision state right after founding conflict: {}", self);
+                                    return Right(Rc::clone(&clause));
+                                }
                                 LitState::Satisfied => { panic!("cannot be here"); }
                             }
                         },
@@ -201,19 +209,10 @@ impl DecisionStack {
         self.made_decision(lit)
     }
 
-    pub fn decide(&mut self, lit: Lit) -> Vec<(Rc<Clause>, Lit)> {
-        match self.ds.last_mut() {
-            Some(last_level) => { last_level.push((lit, None)); }
-            None => { self.ds.push(vec![(lit, None)]); }
-        }
-
+    pub fn decide(&mut self, lit: Lit) -> Either<Vec<(Rc<Clause>, Lit)>, Rc<Clause>> {
+        self.ds.push(vec![(lit, None)]);
         self.variables_state.insert(lit_to_var(&lit), var_state_from_lit(&lit));
-
-        match self.made_decision(lit) {
-            Left(units) => { units }
-            _ => { panic!("Got a conflict after a decision"); }
-        }
-
+        self.made_decision(lit)
     }
 
     pub fn all_variables_assigned(&self) -> bool {
@@ -229,7 +228,7 @@ impl DecisionStack {
             .expect("No justification because no decision has been made");
         
         let lit_in_last_level: Vec<Lit> = lastlevel.iter()
-            .filter(|(l, _)| !clause.contains(l))
+            .filter(|(l, _)| clause.contains(&-l)) // &(0 - *l)
             .map(|(l, _)| *l)
             .collect();
 
@@ -270,12 +269,7 @@ impl DecisionStack {
         }
     }
 
-    pub fn search_backjump(&mut self, lit: &Lit, clause: &Rc<Clause>) -> Vec<Lit> {
-        let non_assert_literals: HashSet<Lit> = clause.iter()
-            .filter(|&l| *l != *lit)
-            .map(i32::clone)
-            .collect();
-            
+    pub fn search_backjump(&mut self, lit: &Lit, non_assert_literals: &HashSet<Lit>) -> Vec<Lit> {
         let mut found_lit: bool = false;
         let mut reverted_literals: Vec<Lit> = Vec::new();
 
@@ -289,8 +283,10 @@ impl DecisionStack {
             }
 
             while let Some((last_lit, c)) = last_level.pop() {
-                found_lit = last_lit == *lit;
-                if non_assert_literals.contains(&last_lit) {
+
+                if last_lit == *lit {
+                    found_lit = true;
+                } else if non_assert_literals.contains(&-last_lit) {
                     if !found_lit {
                         panic!("Found non assertion literal before the conflict literal in the decision stack");
                     } else {
@@ -299,6 +295,12 @@ impl DecisionStack {
                     }
                 } else {
                     reverted_literals.push(last_lit);
+                    self.variables_state.insert(lit_to_var(&last_lit), VarState::Undefined);
+                    // if let Some(x) = self.variables_state.get_mut(&lit_to_var(&last_lit)) {
+                    //     *x = VarState::Undefined;
+                    // } else {
+                    //     panic!("Cannot find reverted literal {}", last_lit);
+                    // }
                 }
             }
 
@@ -307,6 +309,13 @@ impl DecisionStack {
                 break;
             }
         }
+
+        println!("Reverted literals: {:?}", &reverted_literals);
+        println!("Reverted literals state: {:?}", reverted_literals.iter()
+            .map(|l| self.lit_state(*l))
+            .collect::<Vec<LitState>>()
+        );
+
 
         reverted_literals
 

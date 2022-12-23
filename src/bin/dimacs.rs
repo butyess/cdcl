@@ -41,15 +41,15 @@ fn main() {
         std::process::exit(-1);
     }
 
-    println!("n_vars: {}", _nvars);
-    println!("n_clauses: {}", nclauses);
+    // println!("n_vars: {}", _nvars);
+    // println!("n_clauses: {}", nclauses);
 
-    for clause in &clauses {
-        for l in clause {
-            print!("{} ", &l);
-        }
-        println!("");
-    }
+    // for clause in &clauses {
+    //     for l in clause {
+    //         print!("{} ", &l);
+    //     }
+    //     println!("");
+    // }
 
     let mut model: Model = Model::new(clauses);
 
