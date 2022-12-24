@@ -38,7 +38,7 @@ impl fmt::Display for DecisionStack {
                     None => { write!(f, "{}, ", decision.0)?; }
                 }
             }
-            write!(f, "]\n")?;
+            write!(f, "]")?;
         }
         write!(f, "")
     }
@@ -193,11 +193,6 @@ impl DecisionStack {
                             match self.lit_state(other_lit) {
                                 LitState::Unknown => { unit_clauses.push((Rc::clone(&clause), other_lit)); },
                                 LitState::Unsatisfied => {
-                                    println!("Found conflict clause: {:?}, its state is {:?}", &clause, clause.iter()
-                                        .map(|l| self.lit_state(*l))
-                                        .collect::<Vec<LitState>>()
-                                    );
-                                    println!("Decision state right after founding conflict:\n{}", self);
                                     return Right(Rc::clone(&clause));
                                 }
                                 LitState::Satisfied => { panic!("cannot be here"); }
@@ -226,7 +221,10 @@ impl DecisionStack {
         self.variables_state.insert(lit_to_var(&lit), var_state_from_lit(&lit));
         match self.made_decision(lit) {
             Left (units) => units,
-            Right (conflict) => { panic!("Found conflict after decision"); }
+            Right (conflict) => {
+                panic!("Found conflict after decision. Decided literal: {}, Conflict clause: {:?}, decision stack:\n{}",
+                       lit, conflict, self);
+            }
         }
     }
 
@@ -327,13 +325,6 @@ impl DecisionStack {
                 break;
             }
         }
-
-        println!("Reverted literals in search_backjump: {:?}", &reverted_literals);
-        println!("Reverted literals state: {:?}", reverted_literals.iter()
-            .map(|l| self.lit_state(*l))
-            .collect::<Vec<LitState>>()
-        );
-
 
         reverted_literals
 

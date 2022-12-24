@@ -46,10 +46,8 @@ impl Model {
 
     pub fn unit_propagation(&mut self) -> Option<Rc<Clause>> {
         while let Some((clauserc, lit)) = self.unit_clauses.pop() {
-            println!("Propagating {:?}", &clauserc);
             let out = self.decision_stack.propagate(&clauserc, lit);
             self.vsids.propagated_variable(u32::try_from(lit.abs()).unwrap());
-            println!("Decision stack after unit propagation:\n{}", self.decision_stack);
             match out {
                 Left(mut units) => { self.unit_clauses.append(&mut units); }
                 Right(conflict) => { return Some(conflict); }
@@ -84,7 +82,6 @@ impl Model {
 
         let assertion_literal: i32;
         loop {
-            println!("Trying to resolve {:?}", &conflict);
             match self.decision_stack.find_assertion_literal(&conflict) {
                 Some(al) => { assertion_literal = al; break; }
                 None => {
@@ -100,7 +97,6 @@ impl Model {
             }
         }
 
-        println!("Found assertion literal: {}", &assertion_literal);
 
         // 2. learn
         // bump vsids score
@@ -122,7 +118,6 @@ impl Model {
 
         let rev_lit = self.decision_stack.search_backjump(&assertion_literal, &non_assert_literals);
 
-        println!("Reverted literals: {:?}", rev_lit);
 
         for l in rev_lit {
             self.vsids.revert_variable(Var::try_from(l.abs()).unwrap())
@@ -136,37 +131,38 @@ impl Model {
 
     pub fn solve(&mut self) -> bool {
         if let Some(_conflict) = self.unit_propagation() {
-            println!("Conflict during initial unit propagation");
             return false;
         }
 
-        while !self.decision_stack.all_variables_assigned() {
-            // a decision never bring to a conflict, given that the last
-            // operation has been unit propagations
-            println!("Making decision");
-            self.make_decision();
 
-            // println!("Decision stack: {}", self.decision_stack);
-            // println!("Unit clauses: {:?}", self.unit_clauses);
+        // while !self.decision_stack.all_variables_assigned() {
+        loop {
+
+            println!("Decision stack: {}", self.decision_stack);
+            println!("Unit clauses: {:?}", self.unit_clauses);
 
             if let Some(conflict) = self.unit_propagation() {
-                println!("Found conflict after propagation: {:?}", &conflict);
+                println!("Conflict");
+                self.unit_clauses.clear();
 
                 self.vsids.decay();
 
                 if self.decision_stack.level() <= 1 {
-                    println!("Conflict on empty decision stack!");
                     return false;
                 } else {
-                    println!("Resolving conflict");
                     self.resolve_conflict(conflict);
-                    println!("Decision stack after resolving conflict:\n{}", self.decision_stack);
-                    println!("Unit clauses after resolving conflict: {:?}", self.unit_clauses);
                 }
-            }
-        }
+            } else {
+                if self.decision_stack.all_variables_assigned() {
+                    return true;
+                }
 
-        return true;
+                // a decision never bring to a conflict, given that the last
+                // operation has been unit propagations
+                self.make_decision();
+            }
+
+        }
     }
 
 }
