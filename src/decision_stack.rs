@@ -24,6 +24,7 @@ pub struct DecisionStack {
     sentinels: HashMap<Rc<Clause>, (Lit, Lit)>,
     attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)>,
     variables_state: HashMap<Var, VarState>,
+    singleton_clauses: Vec<Rc<Clause>>,
 }
 
 impl fmt::Display for DecisionStack {
@@ -67,6 +68,10 @@ impl DecisionStack {
         let mut attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)> = variables.iter()
             .map(|v| (v.clone(), (HashSet::new(), HashSet::new())))
             .collect();
+        let singleton_clauses: Vec<Rc<Clause>> = clauses.iter()
+            .filter(|c| c.len() == 1)
+            .map(|c| Rc::clone(c))
+            .collect();
 
         for (clause, (lit1, lit2)) in sentinels.iter() {
             for lit in [lit1, lit2] {
@@ -81,6 +86,7 @@ impl DecisionStack {
             sentinels: sentinels,
             attached_clauses: attached_clauses,
             variables_state: variables_state,
+            singleton_clauses: singleton_clauses,
         }
     }
 
@@ -153,6 +159,12 @@ impl DecisionStack {
     }
 
     fn made_decision(&mut self, lit: Lit) -> Either<Vec<(Rc<Clause>, Lit)>, Rc<Clause>> {
+        for c in self.singleton_clauses.iter() {
+            if lit == c[0] {
+                return Right(Rc::clone(&c));
+            }
+        }
+
         // for every clause where -lit is a watched literal
             // if the other watched literal of the clause is not satisfied (unsatisfied or not assigned)
                 // search for a new not unsatisfied literal (satisfied or not assigned) in the clause
@@ -181,11 +193,11 @@ impl DecisionStack {
                             match self.lit_state(other_lit) {
                                 LitState::Unknown => { unit_clauses.push((Rc::clone(&clause), other_lit)); },
                                 LitState::Unsatisfied => {
-                                    println!("Found clause: {:?}, its state is {:?}", &clause, clause.iter()
+                                    println!("Found conflict clause: {:?}, its state is {:?}", &clause, clause.iter()
                                         .map(|l| self.lit_state(*l))
                                         .collect::<Vec<LitState>>()
                                     );
-                                    println!("Decision state right after founding conflict: {}", self);
+                                    println!("Decision state right after founding conflict:\n{}", self);
                                     return Right(Rc::clone(&clause));
                                 }
                                 LitState::Satisfied => { panic!("cannot be here"); }
@@ -209,10 +221,13 @@ impl DecisionStack {
         self.made_decision(lit)
     }
 
-    pub fn decide(&mut self, lit: Lit) -> Either<Vec<(Rc<Clause>, Lit)>, Rc<Clause>> {
+    pub fn decide(&mut self, lit: Lit) -> Vec<(Rc<Clause>, Lit)> {
         self.ds.push(vec![(lit, None)]);
         self.variables_state.insert(lit_to_var(&lit), var_state_from_lit(&lit));
-        self.made_decision(lit)
+        match self.made_decision(lit) {
+            Left (units) => units,
+            Right (conflict) => { panic!("Found conflict after decision"); }
+        }
     }
 
     pub fn all_variables_assigned(&self) -> bool {
@@ -250,7 +265,10 @@ impl DecisionStack {
     }
 
     pub fn learn_clause(&mut self, clause: Rc<Clause>, lit: &Lit) {
-        if clause.len() == 1 { return; }
+        if clause.len() == 1 { 
+            self.singleton_clauses.push(Rc::clone(&clause));
+            return;
+        }
 
         // search for sentinels to watch: a learnt clause is surely conflict, and will
         // become satisfied in the next step (that is a backjump), so it's important to
@@ -310,7 +328,7 @@ impl DecisionStack {
             }
         }
 
-        println!("Reverted literals: {:?}", &reverted_literals);
+        println!("Reverted literals in search_backjump: {:?}", &reverted_literals);
         println!("Reverted literals state: {:?}", reverted_literals.iter()
             .map(|l| self.lit_state(*l))
             .collect::<Vec<LitState>>()

@@ -22,15 +22,23 @@ pub struct Model {
 
 impl Model {
     pub fn new(clauses: Vec<Clause>) -> Model {
-        let variables: HashSet<Var> = clauses.iter().flatten().map(|x| u32::try_from(x.abs()).unwrap()).collect();
+        let variables: HashSet<Var> = clauses.iter()
+            .flatten()
+            .map(|x| u32::try_from(x.abs()).unwrap())
+            .collect();
         let clauses: Vec<Rc<Clause>> = clauses.into_iter().map(Rc::new).collect();
         let vsids: CVSIDS = CVSIDS::new(&variables);
         let decision_stack: DecisionStack = DecisionStack::new(&clauses, &variables);
 
+        let unit_clauses: Vec<(Rc<Clause>, Lit)> = clauses.iter()
+            .filter(|c| c.len() == 1)
+            .map(|c| (Rc::clone(c), c[0]))
+            .collect();
+
         Model {
             clauses: clauses,
             variables: variables,
-            unit_clauses: Vec::new(),
+            unit_clauses: unit_clauses,
             decision_stack: decision_stack,
             vsids: vsids,
         }
@@ -41,7 +49,7 @@ impl Model {
             println!("Propagating {:?}", &clauserc);
             let out = self.decision_stack.propagate(&clauserc, lit);
             self.vsids.propagated_variable(u32::try_from(lit.abs()).unwrap());
-            println!("Decision stack: {}", self.decision_stack);
+            println!("Decision stack after unit propagation:\n{}", self.decision_stack);
             match out {
                 Left(mut units) => { self.unit_clauses.append(&mut units); }
                 Right(conflict) => { return Some(conflict); }
@@ -50,14 +58,10 @@ impl Model {
         None
     }
 
-    fn make_decision(&mut self) -> Option<Rc<Clause>> {
+    fn make_decision(&mut self) {
         let decided_lit = self.vsids.get_highest_score_variable();
-        let out = self.decision_stack.decide(decided_lit);
-        match out {
-            Left(mut units) => { self.unit_clauses.append(&mut units); }
-            Right(conflict) => { return Some(conflict); }
-        }
-        None
+        let mut out = self.decision_stack.decide(decided_lit);
+        self.unit_clauses.append(&mut out);
     }
 
     fn resolution(&self, base: &Clause, with: &Rc<Clause>) -> Clause {
@@ -139,21 +143,8 @@ impl Model {
         while !self.decision_stack.all_variables_assigned() {
             // a decision never bring to a conflict, given that the last
             // operation has been unit propagations
-            if let Some(conflict) = self.make_decision() {
-                println!("Found conflict after decision: {:?}", &conflict);
-
-                self.vsids.decay();
-
-                if self.decision_stack.level() <= 1 {
-                    println!("Conflict on empty decision stack!");
-                    return false;
-                } else {
-                    println!("Resolving conflict");
-                    self.resolve_conflict(conflict);
-                    println!("Decision stack after resolving conflict: {}", self.decision_stack);
-                }
-
-            }
+            println!("Making decision");
+            self.make_decision();
 
             // println!("Decision stack: {}", self.decision_stack);
             // println!("Unit clauses: {:?}", self.unit_clauses);
@@ -169,7 +160,8 @@ impl Model {
                 } else {
                     println!("Resolving conflict");
                     self.resolve_conflict(conflict);
-                    println!("Decision stack after resolving conflict: {}", self.decision_stack);
+                    println!("Decision stack after resolving conflict:\n{}", self.decision_stack);
+                    println!("Unit clauses after resolving conflict: {:?}", self.unit_clauses);
                 }
             }
         }
