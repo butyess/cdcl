@@ -1,0 +1,37 @@
+Implementation scenarios:
+
+SCENARIO 1: The Monolith
+------------------------
+Only one class to handle everything.
+Create the class by sending it the clauses and resolve them with the
+method `solve` that returns a Result<Bool, SomeKindOfError>.
+PRO: you can build exactly one method for every basic functionality
+CONS: very big file
+doubts:
+- what to keep in the class and what to keep in the `solve` method?
+
+SCENARIO 2: The Semi-Monolith
+-----------------------------
+Still one class but without the `solve` method.
+You can call methods like:
+- unit_propagation
+- all_variables_assigned
+- pick_branching_variable
+- make_decision
+- resolve_conflict
+PRO: ...
+CONS: a lot of implementation choices: where to do propagation?
+      what does these functions return?
+
+SCENARIO 3: The functional
+--------------------------
+You build different types to keep the state of the solver:
+- Conflict(Cnf, Assignment, Clause)
+- Research(Cnf, Assignment)
+- Satisfied(Assignment)
+- Unsatisfied(Resolution)
+Then you build a bunch of function to make transitions between states,
+and a `solve` function that compose them all into the algorithm.
+CONS: how do you keep watched literals? how do you keep VSIDS?
+      in general, this is the problem of keeping state that can reference to the state
+      of the solver (both the Cnf and the Assignment)

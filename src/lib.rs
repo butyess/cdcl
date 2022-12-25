@@ -5,3 +5,4 @@
 pub mod model;
 mod cvsids;
 mod decision_stack;
+mod cdcl;

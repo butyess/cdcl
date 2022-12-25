@@ -35,13 +35,7 @@ impl Model {
             .map(|c| (Rc::clone(c), c[0]))
             .collect();
 
-        Model {
-            clauses: clauses,
-            variables: variables,
-            unit_clauses: unit_clauses,
-            decision_stack: decision_stack,
-            vsids: vsids,
-        }
+        Model { clauses, variables, unit_clauses, decision_stack, vsids, }
     }
 
     pub fn unit_propagation(&mut self) -> Option<Rc<Clause>> {
