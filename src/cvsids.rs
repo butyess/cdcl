@@ -1,49 +1,49 @@
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 use priority_queue::PriorityQueue;
 
-use super::model::{Var, Lit};
+use crate::model::{Var, Lit};
 
-#[derive(Debug)]
-pub struct CVSIDS {
-    variables: PriorityQueue<Var, u32>, // use a heap/priority queue
-    signs: HashMap<Var, bool>,
+pub struct CVSIDS<'a> {
+    variables: PriorityQueue<&'a Var, u32>,
+    signs: HashMap<&'a Var, bool>,
     bump_const: u32,
     decay_inverse: f32,
 }
 
-impl CVSIDS {
-    pub fn new(variables: &HashSet<Var>) -> CVSIDS {
+impl<'a> CVSIDS<'a> {
+    pub fn new<I>(variables: &I) -> CVSIDS
+    where I: Iterator<Item = &'a Var>,
+    {
         CVSIDS {
-            variables: variables.iter().map(|x| (x.clone(), 0)).collect(),
+            variables: variables.map(|x| (x, 0)).collect(),
             signs: HashMap::new(),
             bump_const: 1,
             decay_inverse: 5.0 / 6.0,
         }
     }
 
-    pub fn get_highest_score_variable(&mut self) -> Lit {
+    pub fn pick_literal(&mut self) -> Lit {
         let (var, _) = self.variables.pop()
             .expect("Asked top literal but the prioirty queue is empty");
 
-        let sign = match self.signs.get(&var) {
-            None => { self.signs.insert(var.clone(), true); true },
+        let sign = match self.signs.get(var) {
+            None => { self.signs.insert(var, true); true },
             Some(b) => *b
         };
 
         if sign {
-            i32::try_from(var).unwrap()
+            *var as Lit
         } else {
-            -i32::try_from(var).unwrap()
+            var.checked_neg().unwrap() as Lit
         }
     }
 
-    pub fn propagated_variable(&mut self, var: Var) {
-        self.variables.remove(&var);
+    pub fn propagated_variable(&mut self, var: &Var) {
+        self.variables.remove(var);
     }
 
-    pub fn revert_variable(&mut self, var: Var) {
+    pub fn revert_variable(&mut self, var: &Var) {
         self.variables.push(var, 0);
     }
 
@@ -75,5 +75,3 @@ impl CVSIDS {
     }
 
 }
-
-
