@@ -2,32 +2,26 @@ use std::collections::{HashMap, HashSet};
 
 use either::{Either, Right, Left};
 
-use crate::model::{Var, Lit, Clause, Assignment, ConflictClause, UnitClauses, VarState};
+use crate::model::{Var, Lit, Clause, ConflictClause, UnitClauses, VarState};
 
 enum LitState { Satisfied, Unsatisfied, Unknown, }
 
 pub struct WatchedLiterals<'a> {
-    attached_clauses: HashMap<&'a Var, (HashSet<&'a Clause>, HashSet<&'a Clause>)>,
+    attached_clauses: HashMap<Var, (HashSet<&'a Clause>, HashSet<&'a Clause>)>,
     sentinels: HashMap<&'a Clause, (Lit, Lit)>,
-    assignment: &'a Assignment,
     singleton_clauses: Vec<&'a Clause>,
 }
 
 impl<'a> WatchedLiterals<'a> {
-    pub fn new(
-        clauses: &'a Vec<Clause>,
-        assignment: &'a Assignment,
-    ) -> WatchedLiterals<'a> {
-
+    pub fn new(clauses: &Vec<Clause>, variables: &HashSet<Var>) -> WatchedLiterals<'a> {
         let mut wl = WatchedLiterals {
-            attached_clauses: assignment.iter()
-                .map(|(v, _)| (v, (HashSet::new(), HashSet::new())))
+            attached_clauses: variables.iter()
+                .map(|&v| (v, (HashSet::new(), HashSet::new())))
                 .collect(),
             sentinels: clauses.iter()
-                .filter(|c| c.len() > 1)
+                .filter(|&c| c.len() > 1)
                 .map(|c| (c, (c[0], c[1])))
                 .collect(),
-            assignment,
             singleton_clauses: clauses.iter()
                 .filter(|c| c.len() == 1)
                 .collect(),
@@ -57,8 +51,8 @@ impl<'a> WatchedLiterals<'a> {
         }
     }
 
-    fn lit_state(&self, lit: &Lit) -> LitState {
-        match self.assignment.get(&(lit.abs() as Var)).unwrap() {
+    fn lit_state(&self, lit: &Lit, assignment: &HashMap<Var, VarState>) -> LitState {
+        match assignment.get(&(lit.abs() as Var)).unwrap() {
             VarState::Positive => if lit.is_positive() { LitState::Satisfied }
                                   else { LitState::Unsatisfied },
             VarState::Negative => if lit.is_negative() { LitState::Satisfied }
@@ -67,10 +61,15 @@ impl<'a> WatchedLiterals<'a> {
         }
     }
 
-    fn search_not_sat(&self, clause: &Clause, wl1: &Lit, wl2: &Lit) -> Option<Lit> {
+    fn search_not_sat(&self,
+                      clause: &Clause,
+                      wl1: &Lit,
+                      wl2: &Lit,
+                      assignment: &HashMap<Var, VarState>,
+    ) -> Option<Lit> {
         clause.iter()
             .filter(|&l| (*l != *wl1) & (*l != *wl2))
-            .find(|&l| match self.lit_state(l) {
+            .find(|&l| match self.lit_state(l, &assignment) {
                 LitState::Satisfied | LitState::Unknown => true,
                 LitState::Unsatisfied => false,
             })
@@ -95,7 +94,7 @@ impl<'a> WatchedLiterals<'a> {
         self.get_mut_clauses(new).insert(clause);
     }
 
-    pub fn decision(&mut self, lit: &Lit) -> Either<ConflictClause, UnitClauses> {
+    pub fn decision(&mut self, lit: &Lit, assignment: &HashMap<Var, VarState>) -> Either<ConflictClause, UnitClauses> {
         for &c in self.singleton_clauses.iter() {
             if *lit == c[0] {
                 return Left((*c).clone());
@@ -119,10 +118,10 @@ impl<'a> WatchedLiterals<'a> {
         // while let Some(clause) = self.get_any_clause(-lit) {
         for &clause in neg_clauses.iter() {
             let other_lit = self.get_other_watched_sentinel(&clause, &-lit);
-            match self.lit_state(&other_lit) {
+            match self.lit_state(&other_lit, &assignment) {
                 LitState::Satisfied => { continue; },
                 LitState::Unsatisfied | LitState::Unknown => {
-                    match self.search_not_sat(&clause, &-lit, &other_lit) {
+                    match self.search_not_sat(&clause, &-lit, &other_lit, &assignment) {
                         Some(newlit) => {
                             self.replace_watched_literal(&clause,
                                                          &-lit,
@@ -130,7 +129,7 @@ impl<'a> WatchedLiterals<'a> {
                                                          &other_lit);
                         },
                         None => {
-                            match self.lit_state(&other_lit) {
+                            match self.lit_state(&other_lit, &assignment) {
                                 LitState::Unknown => {
                                     unit_clauses.push_back((&clause, other_lit));
                                 },
