@@ -3,7 +3,7 @@
 #![allow(unused_mut)]
 #![allow(unused_imports)]
 
-use cdcl_lib::model::{Clause, solve};
+use cdcl_lib::model::{Clause, Model};
 
 fn main() {
     let clauses: Vec<Clause> = vec![
@@ -11,7 +11,8 @@ fn main() {
         vec![2],
     ];
 
-    let _out = solve(clauses);
+    let mut model = Model::new(clauses);
+    let _out = model.solve();
 
     // println!("output: {}", out);
 

@@ -9,7 +9,7 @@ use std::io::{self, BufReader, BufRead};
 
 use either::{Left, Right};
 
-use cdcl_lib::model::{Clause, solve, VarState};
+use cdcl_lib::model::{Model, Clause, VarState};
 
 fn main() {
 
@@ -50,7 +50,8 @@ fn main() {
         std::process::exit(-1);
     }
 
-    match solve(clauses) {
+    let mut model = Model::new(clauses);
+    match model.solve() {
         Left(b) => { println!("Unsatisfied, this is false: {b}") },
         Right(ass) => {
             println!("Satisfied, assignment:");

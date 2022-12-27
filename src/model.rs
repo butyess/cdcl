@@ -25,21 +25,6 @@ enum SolverState { Propagating(UnitClauses), Resolving(ConflictClause) }
 pub type Assignment = HashMap<Var, VarState>;
 type DecisionStack = Vec<(i32, Lit, Option<Rc<Clause>>)>;
 
-fn decide(
-    decision_stack: &mut DecisionStack,
-    assignment: &mut Assignment,
-    dl: i32,
-    lit: &Lit,
-    justification: Option<Rc<Clause>>
-) {
-    // update decision stack
-    decision_stack.push((dl, *lit, justification));
-
-    // update assignments
-    let val = assignment.get_mut(&(lit.abs() as Var)).unwrap();
-    *val = if lit.is_positive() { VarState::Positive } else { VarState::Negative };
-}
-
 fn resolution_step(left: &Clause, right: &Clause) -> Clause {
     let mut newclause = Clause::new();
     for l in left {
@@ -53,227 +38,255 @@ fn resolution_step(left: &Clause, right: &Clause) -> Clause {
     newclause
 }
 
-fn revert(assignment: &mut Assignment, lit: &Lit) {
-    let val = assignment.get_mut(&(lit.abs() as Var)).unwrap();
-    *val = VarState::Undefined;
+
+pub struct Model {
+    clauses: Vec<Rc<Clause>>,
+    variables: HashSet<Var>,
+    decision_stack: DecisionStack,
+    assignment: Assignment,
+    cvsids: CVSIDS,
+    watched_literals: WatchedLiterals,
 }
 
-fn get_assertion_lit(
-    decision_stack: &DecisionStack,
-    clause: &Clause,
-    dl: &i32
-) -> Option<Lit> {
-    let last_level_lits: Vec<&Lit> = decision_stack.iter()
-        .filter(|(lev, lit, _)| *lev == *dl && clause.contains(&-lit))
-        .map(|(_, lit, _)| lit)
-        .collect();
+impl Model {
 
-    match last_level_lits.len() {
-        0 => { panic!("No literal found in last level while checking for assertion clause"); }
-        1 => Some( **last_level_lits.first().unwrap() ),
-        _ => None,
+    pub fn new(
+        init_clauses: Vec<Clause>
+    ) -> Model {
+
+        let clauses: Vec<Rc<Clause>> = init_clauses.into_iter()
+            .map(Rc::new)
+            .collect();
+
+        let mut variables: HashSet<Var> = HashSet::new();
+        clauses.iter()
+            .for_each(|c| {
+                c.iter().for_each(|v| { variables.insert(v.abs() as Var); })
+            });
+
+        let assignment = variables.iter()
+            .map(|&v| (v, VarState::Undefined))
+            .collect();
+
+        let decision_stack = Vec::new();
+
+        let cvsids = CVSIDS::new(&variables);
+        let watched_literals = WatchedLiterals::new(&clauses, &variables);
+
+        Model {
+            clauses,
+            variables,
+            decision_stack,
+            assignment,
+            cvsids,
+            watched_literals,
+        }
     }
-}
 
-pub fn solve(
-    init_clauses: Vec<Clause>
-) -> Either<bool, Assignment> {
+    fn revert(
+        &mut self,
+        lit: &Lit
+    ) {
+        let val = self.assignment.get_mut(&(lit.abs() as Var)).unwrap();
+        *val = VarState::Undefined;
+    }
 
-    let mut clauses: Vec<Rc<Clause>> = init_clauses.into_iter()
-        .map(Rc::new)
-        .collect();
+    fn decide(
+        &mut self,
+        // decision_stack: &mut DecisionStack,
+        // assignment: &mut Assignment,
+        dl: i32,
+        lit: &Lit,
+        justification: Option<Rc<Clause>>
+    ) {
+        // update decision stack
+        self.decision_stack.push((dl, *lit, justification));
 
-    let mut variables: HashSet<Var> = HashSet::new();
-    clauses.iter()
-        .for_each(|c| {
-            c.iter() .for_each(|v| { variables.insert(v.abs() as Var); })
-        });
+        // update assignments
+        let val = self.assignment.get_mut(&(lit.abs() as Var)).unwrap();
+        *val = if lit.is_positive() { VarState::Positive } else { VarState::Negative };
+    }
 
-    let mut assignment: Assignment = variables.iter()
-        .map(|&v| (v, VarState::Undefined))
-        .collect();
+    fn get_assertion_lit(
+        &self,
+        // decision_stack: &DecisionStack,
+        clause: &Clause,
+        dl: &i32
+    ) -> Option<Lit> {
+        let last_level_lits: Vec<&Lit> = self.decision_stack.iter()
+            .filter(|(lev, lit, _)| *lev == *dl && clause.contains(&-lit))
+            .map(|(_, lit, _)| lit)
+            .collect();
 
-    let mut decision_stack: DecisionStack = Vec::new();
+        match last_level_lits.len() {
+            0 => { panic!("No literal found in last level while checking for assertion clause"); }
+            1 => Some(**last_level_lits.first().unwrap()),
+            _ => None,
+        }
+    }
 
-    let mut cvsids = CVSIDS::new(&variables);
-    let mut watched_literals = WatchedLiterals::new(&clauses, &variables);
+    pub fn solve(
+        &mut self,
+    ) -> Either<bool, &Assignment> {
 
-    let mut unit_clauses: VecDeque<(Lit, Rc<Clause>)> = clauses.iter()
-        .filter(|&c| c.len() == 1)
-        .map(|c| (c[0], Rc::clone(c)))
-        .collect();
-
-    let mut dl = 0;
-
-    // initial unit propagation
-    while let Some((lit, clause)) = unit_clauses.pop_front() {
-        if *assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
-            continue;
+        if !self.decision_stack.is_empty() {
+            panic!("can't start solving because decision stack is not empty");
         }
 
-        decide(&mut decision_stack, &mut assignment, dl, &lit, Some(clause));
-        cvsids.propagated_variable(&(lit.abs() as Var));
+        let mut unit_clauses: VecDeque<(Lit, Rc<Clause>)> = self.clauses.iter()
+            .filter(|&c| c.len() == 1)
+            .map(|c| (c[0], Rc::clone(c)))
+            .collect();
 
-        match watched_literals.decision(&lit, &assignment) {
-            Left(_conflict) => { return Left(false); },
-            Right(units) => {
-                for (uc, l) in units {
-                    unit_clauses.push_back((l, Rc::clone(&uc)))
+        let mut dl = 0;
+
+        // initial unit propagation
+        while let Some((lit, clause)) = unit_clauses.pop_front() {
+            if *self.assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
+                continue;
+            }
+
+            self.decide(dl, &lit, Some(clause));
+            self.cvsids.propagated_variable(&(lit.abs() as Var));
+
+            match self.watched_literals.decision(&lit, &self.assignment) {
+                Left(_conflict) => { return Left(false); },
+                Right(units) => {
+                    for (uc, l) in units {
+                        unit_clauses.push_back((l, Rc::clone(&uc)))
+                    }
                 }
             }
         }
-    }
 
-    // let mut j = 10;
+        while self.decision_stack.len() < self.variables.len() {
 
-    while decision_stack.len() < variables.len()
-    {
+            let picked_lit = self.cvsids.pick_literal();
+            dl += 1;
+            self.decide(dl, &picked_lit, None);
 
-        // j -= 1;
-        // if j == 0 {
-        //     break;
-        // }
+            debug!("decided literal: {picked_lit}");
 
-        let picked_lit = cvsids.pick_literal();
-        dl += 1;
-        decide(&mut decision_stack, &mut assignment, dl, &picked_lit, None);
+            let mut solver_state =
+                match self.watched_literals.decision(&picked_lit, &self.assignment) {
+                    Left(conflict) => SolverState::Resolving(conflict),
+                    Right(units) => SolverState::Propagating(units)
+                };
 
-        debug!("decided literal: {picked_lit}");
+            loop {
 
-        let mut solver_state =
-            match watched_literals.decision(&picked_lit, &assignment) {
-                Left(conflict) => SolverState::Resolving(conflict),
-                Right(units) => SolverState::Propagating(units)
-        };
+                debug!("starting loop iteration. decision stack:");
+                for l in self.decision_stack.iter() {
+                    debug!("{l:?}");
+                }
+                debug!("solver state: {solver_state:?}");
 
-        // let mut i = 10;
+                match &mut solver_state {
+                    SolverState::Resolving(conflict) => {
+                        debug!("conflict, clause: {conflict:?}");
 
-        loop {
+                        if dl == 0 { return Left(false); }
 
-            // i -= 1;
-            // if i == 0 {
-            //     break;
-            // }
+                        if let Some(assertion_lit) = self.get_assertion_lit(&conflict, &dl) {
+                            debug!("found assertion literal: {assertion_lit}");
+                            let conflict_rc = Rc::new(conflict.clone());
 
-            debug!("starting loop iteration. decision stack:");
-            for l in decision_stack.iter() {
-                debug!("{l:?}");
-            }
-            debug!("solver state: {solver_state:?}");
+                            // bump
+                            conflict.iter()
+                                .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
 
-            match &mut solver_state {
-                SolverState::Resolving(conflict) => {
-                    debug!("conflict, clause: {conflict:?}");
+                            // learn (1)
+                            self.watched_literals.learn_clause(Rc::clone(&conflict_rc), &-assertion_lit);
+                            self.cvsids.decay();
 
-                    if dl == 0 { return Left(false); }
+                            // backjump
+                            let non_assert_lits: HashSet<&Lit> = conflict.iter()
+                                .filter(|&l| *l != -assertion_lit)
+                                .collect();
 
-                    if let Some(assertion_lit) = get_assertion_lit(
-                        &decision_stack,
-                        &conflict,
-                        &dl
-                    ) {
-                        debug!("found assertion literal: {assertion_lit}");
-                        let conflict_rc = Rc::new(conflict.clone());
+                            while let Some((level, lit, justification))
+                                = self.decision_stack.pop() {
+                                if non_assert_lits.contains(&-lit) {
+                                    self.decision_stack.push((level, -lit, justification));
+                                    break;
+                                } else {
+                                    self.revert(&lit);
+                                    self.cvsids.revert_variable(&(lit.abs() as Var));
+                                }
+                            }
 
-                        // bump
-                        conflict.iter()
-                            .for_each(|l| cvsids.bump(&(l.abs() as Var)));
-
-                        // learn (1)
-                        watched_literals.learn_clause(Rc::clone(&conflict_rc), &-assertion_lit);
-
-                        // backjump
-                        let non_assert_lits: HashSet<&Lit> = conflict.iter()
-                            .filter(|&l| *l != -assertion_lit)
-                            .collect();
-
-                        cvsids.decay();
-
-                        while let Some((level, lit, justification)) = decision_stack.pop() {
-                            if non_assert_lits.contains(&-lit) {
-                                decision_stack.push((level, -lit, justification));
-                                break;
+                            if let Some((level, _, _)) =
+                                self.decision_stack.last() {
+                                dl = *level;
                             } else {
-                                revert(&mut assignment, &lit);
-                                cvsids.revert_variable(&(lit.abs() as Var));
+                                dl = 0;
                             }
-                        }
 
-                        if let Some((level, _, _)) =
-                            decision_stack.last() {
-                            dl = *level;
+                            self.decide(dl,
+                                        &-assertion_lit,
+                                        Some(Rc::clone(&conflict_rc)));
+
+                            match self.watched_literals.decision(&-assertion_lit, &self.assignment) {
+                                Left(confl) => {
+                                    solver_state = SolverState::Resolving(confl);
+                                },
+                                Right(units) => {
+                                    solver_state = SolverState::Propagating(units);
+                                }
+                            }
+
+                            // learn (2)
+                            self.clauses.push(conflict_rc);
                         } else {
-                            dl = 0;
-                        }
+                            let mut j: Option<Rc<Clause>> = None;
 
-                        decide(&mut decision_stack,
-                               &mut assignment,
-                               dl,
-                               &-assertion_lit,
-                               Some(Rc::clone(&conflict_rc)));
-
-                        match watched_literals.decision(&-assertion_lit, &assignment) {
-                            Left(confl) => {
-                                solver_state = SolverState::Resolving(confl);
-                            },
-                            Right(units) => {
-                                solver_state = SolverState::Propagating(units);
+                            // resolve
+                            for (_, lit, just) in self.decision_stack.iter().rev() {
+                                if conflict.contains(&-lit) {
+                                    j = just.clone();
+                                    break;
+                                }
                             }
+
+                            let justification = j.expect("Found no justification");
+
+                            let new_clause = resolution_step(conflict, &justification);
+
+                            debug!("resolving: {conflict:?} + {justification:?} = {new_clause:?}");
+
+                            solver_state = SolverState::Resolving(new_clause);
                         }
+                    },
+                    SolverState::Propagating(units) => {
+                        debug!("propagating...");
 
-                        // learn (2)
-                        clauses.push(conflict_rc);
-                    } else {
-
-                        let mut j: Option<Rc<Clause>> = None;
-
-                        // resolve
-                        for (_, lit, just) in decision_stack.iter().rev() {
-                            if conflict.contains(&-lit) {
-                                j = just.clone();
-                                break;
+                        if let Some((uc, lit)) = units.pop_front() {
+                            if *self.assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
+                                continue;
                             }
-                        }
 
-                        let justification = j.expect("Found no justification");
+                            self.decide(dl, &lit, Some(uc));
+                            self.cvsids.propagated_variable(&(lit.abs() as Var));
 
-                        let new_clause = resolution_step(conflict, &justification);
+                            debug!("propagated {lit}");
 
-                        debug!("resolving: {conflict:?} + {justification:?} = {new_clause:?}");
-
-                        solver_state = SolverState::Resolving(new_clause);
-                    }
-                },
-                SolverState::Propagating(units) => {
-                    debug!("propagating...");
-
-                    if let Some((uc, lit)) = units.pop_front() {
-                        if *assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
-                            continue;
-                        }
-
-                        decide(&mut decision_stack, &mut assignment, dl, &lit, Some(uc));
-                        cvsids.propagated_variable(&(lit.abs() as Var));
-
-                        debug!("propagated {lit}");
-
-                        match &mut watched_literals.decision(&lit, &assignment) {
-                            Left(conflict) => {
-                                solver_state = SolverState::Resolving(conflict.clone());
-                            },
-                            Right(new_units) => {
-                                units.append(new_units);
+                            match &mut self.watched_literals.decision(&lit, &self.assignment) {
+                                Left(conflict) => {
+                                    solver_state = SolverState::Resolving(conflict.clone());
+                                },
+                                Right(new_units) => {
+                                    units.append(new_units);
+                                }
                             }
+                        } else {
+                            debug!("no more propagation to be done!");
+                            break;
                         }
-
-                    } else {
-                        debug!("no more propagation to be done!");
-                        break;
                     }
                 }
             }
         }
-    }
 
-    Right(assignment)
+        Right(&self.assignment)
+    }
 }
