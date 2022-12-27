@@ -36,22 +36,21 @@ fn decide(
     *val = if lit.is_positive() { VarState::Positive } else { VarState::Negative };
 }
 
-// fn resolution_step(left: &Clause, right: &Clause) -> Clause {
-//     let mut newclause = Clause::new();
-//     for l in left {
-//         if !right.contains(&-l) { newclause.push(*l); }
-//     }
-//     for r in right {
-//         if !newclause.contains(&-r) { newclause.push(*r); }
-//     }
-//     newclause
-// }
-//
-// fn revert(assignment: &mut Assignment, lit: &Lit) {
-//     let val = assignment.get_mut(&(lit.abs() as Var)).unwrap();
-//     *val = VarState::Undefined;
-// }
-//
+fn resolution_step(left: &Clause, right: &Clause) -> Clause {
+    let mut newclause = Clause::new();
+    for l in left {
+        if !right.contains(&-l) { newclause.push(*l); }
+    }
+    for r in right.iter() {
+        if !newclause.contains(&-r) { newclause.push(*r); }
+    }
+    newclause
+}
+
+fn revert(assignment: &mut Assignment, lit: &Lit) {
+    let val = assignment.get_mut(&(lit.abs() as Var)).unwrap();
+    *val = VarState::Undefined;
+}
 
 fn get_assertion_lit(
     decision_stack: &DecisionStack,
@@ -103,6 +102,7 @@ pub fn solve(
     // initial unit propagation
     while let Some((lit, clause)) = unit_clauses.pop_front() {
         decide(&mut decision_stack, &mut assignment, dl, &lit, Some(clause));
+        cvsids.propagated_variable(&(lit.abs() as Var));
 
         match watched_literals.decision(&lit, &assignment) {
             Left(_conflict) => { return false; },
@@ -132,104 +132,99 @@ pub fn solve(
 
                     if let Some(assertion_lit) = get_assertion_lit(
                         &decision_stack,
-                        conflict,
+                        &conflict,
                         &dl
                     ) {
+                        let conflict_rc = Rc::new(conflict.clone());
+
                         // bump
                         conflict.iter()
                             .for_each(|l| cvsids.bump(&(l.abs() as Var)));
 
                         // learn (1)
-                        // watched_literals.learn_clause(&conflict, &assertion_lit);
+                        watched_literals.learn_clause(Rc::clone(&conflict_rc), &assertion_lit);
 
-                        // // backjump
-                        // let non_assert_lits: HashSet<&Lit> = confl.iter()
-                        //     .filter(|&l| *l != assertion_lit)
-                        //     .collect();
+                        // backjump
+                        let non_assert_lits: HashSet<&Lit> = conflict.iter()
+                            .filter(|&l| *l != assertion_lit)
+                            .collect();
 
-                        // while let Some((level, lit, justification)) =
-                        //     decision_stack.pop() {
-                        //     if non_assert_lits.contains(&-lit) {
-                        //         decision_stack.push((level, -lit, justification));
-                        //         break;
-                        //     } else {
-                        //         revert(&mut assignment, &lit);
-                        //         cvsids.revert_variable(&(lit.abs() as Var));
-                        //     }
-                        // }
+                        cvsids.decay();
+
+                        while let Some((level, lit, justification)) =
+                            decision_stack.pop() {
+                            if non_assert_lits.contains(&-lit) {
+                                decision_stack.push((level, -lit, justification));
+                                break;
+                            } else {
+                                revert(&mut assignment, &lit);
+                                cvsids.revert_variable(&(lit.abs() as Var));
+                            }
+                        }
+
+                        if let Some((level, _, _)) =
+                            decision_stack.get(decision_stack.len() - 1) {
+                            dl = *level;
+                        } else {
+                            dl = 0;
+                        }
+
+                        decide(&mut decision_stack,
+                               &mut assignment,
+                               dl,
+                               &assertion_lit,
+                               Some(Rc::clone(&conflict_rc)));
+
+                        match watched_literals.decision(&assertion_lit, &assignment) {
+                            Left(confl) => {
+                                solver_state = SolverState::Resolving(confl);
+                            },
+                            Right(units) => {
+                                solver_state = SolverState::Propagating(units);
+                            }
+                        }
+
+                        // learn (2)
+                        clauses.push(conflict_rc);
+                    } else {
+
+                        let mut j: Option<Rc<Clause>> = None;
+
+                        // resolve
+                        for (_, lit, just) in decision_stack.iter().rev() {
+                            if conflict.contains(lit) {
+                                j = just.clone();
+                                break;
+                            }
+                        }
+
+                        let justification = j.expect("Found no justification");
+
+                        solver_state = SolverState::Resolving(
+                            resolution_step(conflict, &justification)
+                        );
                     }
                 },
-                SolverState::Propagating(units) => { }
+                SolverState::Propagating(units) => {
+                    if let Some((uc, lit)) = units.pop_front() {
+                        decide(&mut decision_stack, &mut assignment, dl, &lit, Some(uc));
+                        cvsids.propagated_variable(&(lit.abs() as Var));
+
+                        match &mut watched_literals.decision(&lit, &assignment) {
+                            Left(conflict) => {
+                                solver_state = SolverState::Resolving(conflict.clone());
+                            },
+                            Right(new_units) => {
+                                units.append(new_units);
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
             }
         }
     }
 
     true
 }
-
-//         match &mut solver_state {
-//             SolverState::Resolving(conflict) => {
-
-//                     if let Some((level, _, _)) =
-//                         decision_stack.get(decision_stack.len() - 1) {
-//                         dl = *level;
-//                     } else {
-//                         dl = 0;
-//                     }
-
-//                     decide(&mut decision_stack, &mut assignment, dl, &assertion_lit, Some(&confl));
-//                     // match watched_literals.decision(&assertion_lit, &assignment) {
-//                     match decision(
-//                         &watched_literals.singleton_clauses,
-//                         &mut watched_literals.attached_clauses,
-//                         &mut watched_literals.sentinels,
-//                         &assertion_lit,
-//                         &assignment,
-//                     ) {
-//                         Left(confl) => {
-//                             solver_state = SolverState::Resolving(confl);
-//                         },
-//                         Right(units) => {
-//                             solver_state = SolverState::Propagating(units);
-//                         }
-//                     }
-
-//                     // learn (2)
-//                     clauses.push(confl);
-
-
-//                 } else {
-//                     // resolve
-//                     let justification = decision_stack.iter()
-//                         .rev()
-//                         .find(|(_, l, _)| conflict.contains(l))
-//                         .map(|(_, _, j)| j)
-//                         .expect("found no justification for conflict during resolution")
-//                         .expect("resolution found is a decision");
-
-//                     *conflict = resolution_step(&conflict, &justification);
-//                 }
-//             },
-//             SolverState::Propagating(units) => {
-//                 if let Some((uc, lit)) = units.pop_front() {
-//                     decide(&mut decision_stack, &mut assignment, dl, &lit, Some(uc));
-//                     // match &mut watched_literals.decision(&lit, &assignment) {
-//                     match &mut decision(
-//                         &watched_literals.singleton_clauses,
-//                         &mut watched_literals.attached_clauses,
-//                         &mut watched_literals.sentinels,
-//                         &lit,
-//                         &assignment,
-//                     ) {
-//                         Left(conflict) => {
-//                             solver_state = SolverState::Resolving(conflict.clone());
-//                         },
-//                         Right(new_units) => {
-//                             units.append(new_units);
-//                         }
-//                     }
-//                 } else {
-//                     break;
-//                 }
-//             }
-//         }

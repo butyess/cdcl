@@ -1,13 +1,13 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_mut)]
-#![allow(unused_imports)]
+// #![allow(dead_code)]
+// #![allow(unused_variables)]
+// #![allow(unused_mut)]
+// #![allow(unused_imports)]
 
 use std::env;
 use std::fs;
 use std::io::{self, BufReader, BufRead};
 
-use cdcl_lib::model::{Clause};
+use cdcl_lib::model::{Clause, solve};
 
 fn main() {
 
@@ -58,11 +58,11 @@ fn main() {
 
     // let mut model: Model = Model::new(clauses);
 
-    // let out = model.solve();
-    // if out {
-    //     println!("satisfied");
-    // } else {
-    //     println!("unsatisfied");
-    // }
+    let out = solve(clauses);
+    if out {
+        println!("satisfied");
+    } else {
+        println!("unsatisfied");
+    }
 
 }

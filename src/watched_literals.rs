@@ -1,5 +1,5 @@
 use std::fmt;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use either::{Either, Right, Left};
@@ -177,56 +177,56 @@ impl WatchedLiterals {
         Right(unit_clauses)
     }
 
-    // pub fn learn_clause(
-    //     &mut self,
-    //     clause: Clause,
-    //     lit: &Lit
-    // ) {
-    //     if clause.len() == 1{
-    //         self.singleton_clauses.push(clause);
-    //     } else {
-    //         // search for sentinels to watch: a learnt clause is surely conflict, and will
-    //         // become satisfied in the next step (that is a backjump), so it's important to
-    //         // watch the literal that is going to become true (the assertion literal), while
-    //         // the choice of the other literal is not important because they all are unsatisfied.
-    //         let other_wl = if clause[0] == *lit { clause[1] } else { clause[0] };
+    pub fn learn_clause(
+        &mut self,
+        clause: Rc<Clause>,
+        lit: &Lit
+    ) {
+        if clause.len() == 1{
+            self.singleton_clauses.push(Rc::clone(&clause));
+        } else {
+            // search for sentinels to watch: a learnt clause is surely conflict, and will
+            // become satisfied in the next step (that is a backjump), so it's important to
+            // watch the literal that is going to become true (the assertion literal), while
+            // the choice of the other literal is not important because they all are unsatisfied.
+            let other_wl = if clause[0] == *lit { clause[1] } else { clause[0] };
 
-    //         // put sentinels in sentinels[clause]
-    //         self.sentinels.insert(&clause, (*lit, other_wl));
+            // put sentinels in sentinels[clause]
+            self.sentinels.insert(Rc::clone(&clause), (*lit, other_wl));
 
-    //         // put clause in attached_clause[sent.] for each sent. in sentinels
-    //         for l in [*lit, other_wl] {
-    //             let (pos, neg) =
-    //                 self.attached_clauses.get_mut(&(l.abs() as Var)).unwrap();
-    //             if l > 0 {
-    //                 pos.insert(clause);
-    //             } else {
-    //                 neg.insert(clause);
-    //             }
-    //         }
-    //     }
+            // put clause in attached_clause[sent.] for each sent. in sentinels
+            for l in [*lit, other_wl] {
+                let (pos, neg) =
+                    self.attached_clauses.get_mut(&(l.abs() as Var)).unwrap();
+                if l > 0 {
+                    pos.insert(Rc::clone(&clause));
+                } else {
+                    neg.insert(Rc::clone(&clause));
+                }
+            }
+        }
 
-    // }
+    }
 
 }
 
-// impl<'a> fmt::Display for WatchedLiterals<'a> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         // singleton clauses
-//         writeln!(f, "* singleton clauses: {:?}", self.singleton_clauses)?;
-//
-//         // sentinels
-//         writeln!(f, "* sentinels:")?;
-//         for (c, (l1, l2)) in self.sentinels.iter() {
-//             writeln!(f, "  {c:?}: ({l1}, {l2})")?;
-//         }
-//
-//         // attached clauses
-//         writeln!(f, "* attached clauses:")?;
-//         for (v, (pos, neg)) in self.attached_clauses.iter() {
-//             writeln!(f, "  {v}: {pos:?} & {neg:?} ")?;
-//         }
-//
-//         write!(f, "")
-//     }
-// }
+impl fmt::Display for WatchedLiterals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // singleton clauses
+        writeln!(f, "* singleton clauses: {:?}", self.singleton_clauses)?;
+
+        // sentinels
+        writeln!(f, "* sentinels:")?;
+        for (c, (l1, l2)) in self.sentinels.iter() {
+            writeln!(f, "  {c:?}: ({l1}, {l2})")?;
+        }
+
+        // attached clauses
+        writeln!(f, "* attached clauses:")?;
+        for (v, (pos, neg)) in self.attached_clauses.iter() {
+            writeln!(f, "  {v}: {pos:?} & {neg:?} ")?;
+        }
+
+        write!(f, "")
+    }
+}
