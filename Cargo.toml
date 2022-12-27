@@ -16,3 +16,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "dimacs"
 path = "src/bin/dimacs.rs"
+
+[[bin]]
+name = "main"
+path = "src/bin/main.rs"
