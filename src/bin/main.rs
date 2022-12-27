@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_imports)]
+
 use cdcl_lib::model::{Clause, solve};
 
 fn main() {
@@ -6,7 +11,7 @@ fn main() {
         vec![2],
     ];
 
-    let out = solve(&clauses);
+    let out = solve(clauses);
 
     println!("output: {}", out);
 

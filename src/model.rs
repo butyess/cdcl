@@ -1,4 +1,5 @@
 use std::collections::{HashSet, HashMap, VecDeque};
+use std::rc::Rc;
 
 use either::{Left, Right};
 
@@ -13,19 +14,19 @@ pub type Clause = Vec<Lit>;
 pub enum VarState { Positive, Negative, Undefined, }
 
 pub type ConflictClause = Clause;
-pub type UnitClauses<'a> = VecDeque<(&'a Clause, Lit)>;
+pub type UnitClauses = VecDeque<(Rc<Clause>, Lit)>;
 
-enum SolverState<'a> { Propagating(UnitClauses<'a>), Resolving(ConflictClause) }
+enum SolverState { Propagating(UnitClauses), Resolving(ConflictClause) }
 
 pub type Assignment = HashMap<Var, VarState>;
-type DecisionStack<'a> = Vec<(i32, Lit, Option<&'a Clause>)>;
+type DecisionStack = Vec<(i32, Lit, Option<Rc<Clause>>)>;
 
-fn decide<'a>(
-    decision_stack: &mut DecisionStack<'a>,
+fn decide(
+    decision_stack: &mut DecisionStack,
     assignment: &mut Assignment,
     dl: i32,
     lit: &Lit,
-    justification: Option<&'a Clause>
+    justification: Option<Rc<Clause>>
 ) {
     // update decision stack
     decision_stack.push((dl, *lit, justification));
@@ -69,25 +70,32 @@ fn get_assertion_lit(
     }
 }
 
-pub fn solve(clauses: &Vec<Clause>) -> bool {
+pub fn solve(
+    init_clauses: Vec<Clause>
+) -> bool {
 
-    let mut learned_clauses: Vec<Clause> = Vec::new();
-
-    let variables: HashSet<Var> = clauses.iter()
-        .flatten()
-        .map(|l| l.abs() as u32)
+    let mut clauses: Vec<Rc<Clause>> = init_clauses.into_iter()
+        .map(Rc::new)
         .collect();
+
+    let mut variables: HashSet<Var> = HashSet::new();
+    clauses.iter()
+        .for_each(|c| {
+            c.iter() .for_each(|v| { variables.insert(v.abs() as Var); })
+        });
+
     let mut assignment: Assignment = variables.iter()
         .map(|&v| (v, VarState::Undefined))
         .collect();
+
     let mut decision_stack: DecisionStack = Vec::new();
 
     let mut cvsids = CVSIDS::new(&variables);
     let mut watched_literals = WatchedLiterals::new(&clauses, &variables);
 
-    let mut unit_clauses: VecDeque<(Lit, &Clause)> = clauses.iter()
+    let mut unit_clauses: VecDeque<(Lit, Rc<Clause>)> = clauses.iter()
         .filter(|&c| c.len() == 1)
-        .map(|c| (c[0], c))
+        .map(|c| (c[0], Rc::clone(c)))
         .collect();
 
     let mut dl = 0;
@@ -100,7 +108,7 @@ pub fn solve(clauses: &Vec<Clause>) -> bool {
             Left(_conflict) => { return false; },
             Right(units) => {
                 for (uc, l) in units {
-                    unit_clauses.push_back((l, uc))
+                    unit_clauses.push_back((l, Rc::clone(&uc)))
                 }
             }
         }
@@ -155,6 +163,7 @@ pub fn solve(clauses: &Vec<Clause>) -> bool {
             }
         }
     }
+
     true
 }
 
