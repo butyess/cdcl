@@ -2,7 +2,7 @@ use std::collections::{HashSet, HashMap, VecDeque};
 
 use either::{Left, Right};
 
-use crate::watched_literals::WatchedLiterals;
+use crate::watched_literals::{WatchedLiterals, decision};
 use crate::cvsids::CVSIDS;
 
 pub type Var = u32;
@@ -89,7 +89,14 @@ pub fn solve(clauses: &mut Vec<Clause>) -> bool {
     while let Some((lit, clause)) = unit_clauses.pop_front() {
         decide(&mut decision_stack, &mut assignment, dl, &lit, Some(clause));
 
-        match watched_literals.decision(&lit, &assignment) {
+        // match watched_literals.decision(&lit, &assignment) {
+        match decision(
+            &watched_literals.singleton_clauses,
+            &mut watched_literals.attached_clauses,
+            &mut watched_literals.sentinels,
+            &lit,
+            &assignment,
+        ) {
             Left(_conflict) => { return false; },
             Right(units) => {
                 for (uc, l) in units {
@@ -106,7 +113,14 @@ pub fn solve(clauses: &mut Vec<Clause>) -> bool {
         decide(&mut decision_stack, &mut assignment, dl, &picked_lit, None);
 
         let mut solver_state =
-            match watched_literals.decision(&picked_lit, &assignment) {
+            // match watched_literals.decision(&picked_lit, &assignment) {
+            match decision(
+                &watched_literals.singleton_clauses,
+                &mut watched_literals.attached_clauses,
+                &mut watched_literals.sentinels,
+                &picked_lit,
+                &assignment,
+            ) {
                 Left(conflict) => SolverState::Resolving(conflict),
                 Right(units) => SolverState::Propagating(units)
         };
@@ -156,7 +170,14 @@ pub fn solve(clauses: &mut Vec<Clause>) -> bool {
                         }
 
                         decide(&mut decision_stack, &mut assignment, dl, &assertion_lit, Some(&confl));
-                        match watched_literals.decision(&assertion_lit, &assignment) {
+                        // match watched_literals.decision(&assertion_lit, &assignment) {
+                        match decision(
+                            &watched_literals.singleton_clauses,
+                            &mut watched_literals.attached_clauses,
+                            &mut watched_literals.sentinels,
+                            &assertion_lit,
+                            &assignment,
+                        ) {
                             Left(confl) => {
                                 solver_state = SolverState::Resolving(confl);
                             },
@@ -184,7 +205,14 @@ pub fn solve(clauses: &mut Vec<Clause>) -> bool {
                 SolverState::Propagating(units) => {
                     if let Some((uc, lit)) = units.pop_front() {
                         decide(&mut decision_stack, &mut assignment, dl, &lit, Some(uc));
-                        match &mut watched_literals.decision(&lit, &assignment) {
+                        // match &mut watched_literals.decision(&lit, &assignment) {
+                        match &mut decision(
+                            &watched_literals.singleton_clauses,
+                            &mut watched_literals.attached_clauses,
+                            &mut watched_literals.sentinels,
+                            &lit,
+                            &assignment,
+                        ) {
                             Left(conflict) => {
                                 solver_state = SolverState::Resolving(conflict.clone());
                             },

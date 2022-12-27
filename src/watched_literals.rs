@@ -7,9 +7,128 @@ use crate::model::{Var, Lit, Clause, ConflictClause, UnitClauses, VarState};
 enum LitState { Satisfied, Unsatisfied, Unknown, }
 
 pub struct WatchedLiterals<'a> {
-    attached_clauses: HashMap<Var, (HashSet<&'a Clause>, HashSet<&'a Clause>)>,
-    sentinels: HashMap<&'a Clause, (Lit, Lit)>,
-    singleton_clauses: Vec<&'a Clause>,
+    pub attached_clauses: HashMap<Var, (HashSet<&'a Clause>, HashSet<&'a Clause>)>,
+    pub sentinels: HashMap<&'a Clause, (Lit, Lit)>,
+    pub singleton_clauses: Vec<&'a Clause>,
+}
+
+fn get_clauses<'a, 'b>(
+    attached_clauses: &'a HashMap<Var, (HashSet<&'b Clause>, HashSet<&'b Clause>)>,
+    lit: &Lit
+) -> &'a HashSet<&'b Clause> {
+    let (pos, neg) = attached_clauses.get(&(lit.abs() as Var)).unwrap();
+    if lit.is_positive() { pos } else { neg }
+}
+
+fn get_other_watched_sentinel(
+    sentinels: &HashMap<&Clause, (Lit, Lit)>,
+    clause: &Clause,
+    lit: &Lit
+) -> Lit {
+    let wl = sentinels.get(clause).unwrap();
+    if wl.0 == *lit { wl.1 } else if wl.1 == *lit { wl.0 } else {
+        panic!("Asked for other sentinel but the literal is not in the clause");
+    }
+}
+
+fn lit_state(lit: &Lit, assignment: &HashMap<Var, VarState>) -> LitState {
+    match assignment.get(&(lit.abs() as Var)).unwrap() {
+        VarState::Positive => if lit.is_positive() { LitState::Satisfied }
+        else { LitState::Unsatisfied },
+        VarState::Negative => if lit.is_negative() { LitState::Satisfied }
+        else { LitState::Unsatisfied },
+        VarState::Undefined => LitState::Unknown,
+    }
+}
+
+fn search_not_sat(
+    clause: &Clause,
+    wl1: &Lit,
+    wl2: &Lit,
+    assignment: &HashMap<Var, VarState>,
+) -> Option<Lit> {
+    clause.iter()
+        .filter(|&l| (*l != *wl1) & (*l != *wl2))
+        .find(|&l| match lit_state(l, &assignment) {
+            LitState::Satisfied | LitState::Unknown => true,
+            LitState::Unsatisfied => false,
+        })
+        .map(Lit::clone)
+}
+
+pub fn decision<'a>(
+    singleton_clauses: &Vec<&'a Clause>,
+    attached_clauses: &mut HashMap<Var, (HashSet<&'a Clause>, HashSet<&'a Clause>)>,
+    sentinels: &mut HashMap<&'a Clause, (Lit, Lit)>,
+    lit: &Lit,
+    assignment: &HashMap<Var, VarState>
+) -> Either<ConflictClause, UnitClauses<'a>> {
+    for &c in singleton_clauses.iter() {
+        if *lit == c[0] {
+            return Left((*c).clone());
+        }
+    }
+
+    // for every clause where -lit is a watched literal
+    // if the other watched literal of the clause is
+    //  not satisfied (unsatisfied or not assigned)
+    // search for a new not unsatisfied literal (satisfied or not assigned)
+    //   in the clause
+    // if you find it, replace it with -lit as a watched literal
+    // if you don't find it, match the other literal:
+    // if the other literal is undefined, then we have a new unit clause, and
+    //  the unit literal is the other literal
+    // if the other literal is false, then we have a conflict clause
+
+    let mut unit_clauses: UnitClauses = UnitClauses::new();
+    let neg_clauses = get_clauses(&attached_clauses, lit);
+
+    // while let Some(clause) = self.get_any_clause(-lit) {
+    for &clause in neg_clauses.iter() {
+        let other_lit = get_other_watched_sentinel(&sentinels, &clause, &-lit);
+        match lit_state(&other_lit, &assignment) {
+            LitState::Satisfied => { continue; },
+            LitState::Unsatisfied | LitState::Unknown => {
+                match search_not_sat(&clause, &-lit, &other_lit, &assignment) {
+                    Some(newlit) => {
+                        // replace watched literals
+                        sentinels.insert(clause, (newlit, other_lit));
+
+                        let (pos, neg) =
+                            attached_clauses.get_mut(&(lit.abs() as Var)).unwrap();
+                        if lit.is_positive() {
+                            pos.remove(clause);
+                        } else {
+                            neg.remove(clause);
+                        }
+
+                        let (pos2, neg2) =
+                            attached_clauses.get_mut(&(newlit.abs() as Var)).unwrap();
+                        if newlit.is_positive() {
+                            pos2.insert(clause);
+                        } else {
+                            neg2.insert(clause);
+                        }
+
+                    },
+                    None => {
+                        match lit_state(&other_lit, &assignment) {
+                            LitState::Unknown => {
+                                unit_clauses.push_back((&clause, other_lit));
+                            },
+                            LitState::Unsatisfied => {
+                                return Left(clause.clone());
+                            }
+                            LitState::Satisfied => {
+                                panic!("cannot be here");
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+    Right(unit_clauses)
 }
 
 impl<'a> WatchedLiterals<'a> {
@@ -42,113 +161,6 @@ impl<'a> WatchedLiterals<'a> {
             }
         }
         wl
-    }
-
-    fn get_other_watched_sentinel(&self, clause: &Clause, lit: &Lit) -> Lit {
-        let wl = self.sentinels.get(clause).unwrap();
-        if wl.0 == *lit { wl.1 } else if wl.1 == *lit { wl.0 } else {
-            panic!("Asked for other sentinel but the literal is not in the clause");
-        }
-    }
-
-    fn lit_state(&self, lit: &Lit, assignment: &HashMap<Var, VarState>) -> LitState {
-        match assignment.get(&(lit.abs() as Var)).unwrap() {
-            VarState::Positive => if lit.is_positive() { LitState::Satisfied }
-                                  else { LitState::Unsatisfied },
-            VarState::Negative => if lit.is_negative() { LitState::Satisfied }
-                                  else { LitState::Unsatisfied },
-            VarState::Undefined => LitState::Unknown,
-        }
-    }
-
-    fn search_not_sat(&self,
-                      clause: &Clause,
-                      wl1: &Lit,
-                      wl2: &Lit,
-                      assignment: &HashMap<Var, VarState>,
-    ) -> Option<Lit> {
-        clause.iter()
-            .filter(|&l| (*l != *wl1) & (*l != *wl2))
-            .find(|&l| match self.lit_state(l, &assignment) {
-                LitState::Satisfied | LitState::Unknown => true,
-                LitState::Unsatisfied => false,
-            })
-            .map(Lit::clone)
-    }
-
-    fn get_mut_clauses(&mut self, lit: &Lit) -> &mut HashSet<&'a Clause> {
-        let (pos, neg) =
-            self.attached_clauses.get_mut(&(lit.abs() as Var)).unwrap();
-        if lit.is_positive() { pos } else { neg }
-    }
-
-    fn get_clauses(&mut self, lit: &Lit) -> &HashSet<&Clause> {
-        let (pos, neg) =
-            self.attached_clauses.get(&(lit.abs() as Var)).unwrap();
-        if lit.is_positive() { pos } else { neg }
-    }
-
-    fn replace_watched_literal(&mut self, clause: &'a Clause, old: &Lit, new: &Lit, other: &Lit) {
-        self.sentinels.insert(clause, (*new, *other));
-        self.get_mut_clauses(old).remove(clause);
-        self.get_mut_clauses(new).insert(clause);
-    }
-
-    pub fn decision(&mut self,
-                    lit: &Lit,
-                    assignment: &HashMap<Var, VarState>
-    ) -> Either<ConflictClause, UnitClauses> {
-        for &c in self.singleton_clauses.iter() {
-            if *lit == c[0] {
-                return Left((*c).clone());
-            }
-        }
-
-        // for every clause where -lit is a watched literal
-            // if the other watched literal of the clause is
-            //  not satisfied (unsatisfied or not assigned)
-                // search for a new not unsatisfied literal (satisfied or not assigned)
-                //   in the clause
-                // if you find it, replace it with -lit as a watched literal
-                // if you don't find it, match the other literal:
-                    // if the other literal is undefined, then we have a new unit clause, and
-                    //  the unit literal is the other literal
-                    // if the other literal is false, then we have a conflict clause
-
-        let mut unit_clauses: UnitClauses = UnitClauses::new();
-        let neg_clauses = self.get_clauses(lit);
-
-        // while let Some(clause) = self.get_any_clause(-lit) {
-        for &clause in neg_clauses.iter() {
-            let other_lit = self.get_other_watched_sentinel(&clause, &-lit);
-            match self.lit_state(&other_lit, &assignment) {
-                LitState::Satisfied => { continue; },
-                LitState::Unsatisfied | LitState::Unknown => {
-                    match self.search_not_sat(&clause, &-lit, &other_lit, &assignment) {
-                        Some(newlit) => {
-                            self.replace_watched_literal(&clause,
-                                                         &-lit,
-                                                         &newlit,
-                                                         &other_lit);
-                        },
-                        None => {
-                            match self.lit_state(&other_lit, &assignment) {
-                                LitState::Unknown => {
-                                    unit_clauses.push_back((&clause, other_lit));
-                                },
-                                LitState::Unsatisfied => {
-                                    return Left(clause.clone());
-                                }
-                                LitState::Satisfied => {
-                                    panic!("cannot be here");
-                                }
-                            }
-                        },
-                    }
-                }
-            }
-        }
-        Right(unit_clauses)
     }
 
     pub fn learn_clause(&mut self, clause: &'a Clause, lit: &Lit) {
