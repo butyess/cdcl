@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::io::{self, BufReader, BufRead};
 
-use cdcl_lib::model::{Clause, Model};
+use cdcl_lib::model::{Clause};
 
 fn main() {
 
@@ -51,13 +51,13 @@ fn main() {
     //     println!("");
     // }
 
-    let mut model: Model = Model::new(clauses);
+    // let mut model: Model = Model::new(clauses);
 
-    let out = model.solve();
-    if out {
-        println!("satisfied");
-    } else {
-        println!("unsatisfied");
-    }
+    // let out = model.solve();
+    // if out {
+    //     println!("satisfied");
+    // } else {
+    //     println!("unsatisfied");
+    // }
 
 }

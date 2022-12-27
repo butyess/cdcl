@@ -94,7 +94,10 @@ impl<'a> WatchedLiterals<'a> {
         self.get_mut_clauses(new).insert(clause);
     }
 
-    pub fn decision(&mut self, lit: &Lit, assignment: &HashMap<Var, VarState>) -> Either<ConflictClause, UnitClauses> {
+    pub fn decision(&mut self,
+                    lit: &Lit,
+                    assignment: &HashMap<Var, VarState>
+    ) -> Either<ConflictClause, UnitClauses> {
         for &c in self.singleton_clauses.iter() {
             if *lit == c[0] {
                 return Left((*c).clone());
