@@ -43,6 +43,7 @@ pub struct Model {
     clauses: Vec<Rc<Clause>>,
     variables: HashSet<Var>,
     decision_stack: DecisionStack,
+    dl: i32,
     assignment: Assignment,
     cvsids: CVSIDS,
     watched_literals: WatchedLiterals,
@@ -76,6 +77,7 @@ impl Model {
         Model {
             clauses,
             variables,
+            dl: 0,
             decision_stack,
             assignment,
             cvsids,
@@ -93,8 +95,6 @@ impl Model {
 
     fn decide(
         &mut self,
-        // decision_stack: &mut DecisionStack,
-        // assignment: &mut Assignment,
         dl: i32,
         lit: &Lit,
         justification: Option<Rc<Clause>>
@@ -109,7 +109,6 @@ impl Model {
 
     fn get_assertion_lit(
         &self,
-        // decision_stack: &DecisionStack,
         clause: &Clause,
         dl: &i32
     ) -> Option<Lit> {
@@ -125,11 +124,11 @@ impl Model {
         }
     }
 
-    pub fn solve(
-        &mut self,
-    ) -> Either<bool, &Assignment> {
+    // fn backjump(&mut self, assertion_literal: &Lit, assertion_clause: Rc<Clause>) -> SolverState {}
 
-        if !self.decision_stack.is_empty() {
+    pub fn solve(&mut self) -> Either<bool, &Assignment> {
+
+        if !self.decision_stack.is_empty() || self.dl != 0 {
             panic!("can't start solving because decision stack is not empty");
         }
 
@@ -138,15 +137,13 @@ impl Model {
             .map(|c| (c[0], Rc::clone(c)))
             .collect();
 
-        let mut dl = 0;
-
         // initial unit propagation
         while let Some((lit, clause)) = unit_clauses.pop_front() {
             if *self.assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
                 continue;
             }
 
-            self.decide(dl, &lit, Some(clause));
+            self.decide(self.dl, &lit, Some(clause));
             self.cvsids.propagated_variable(&(lit.abs() as Var));
 
             match self.watched_literals.decision(&lit, &self.assignment) {
@@ -162,8 +159,8 @@ impl Model {
         while self.decision_stack.len() < self.variables.len() {
 
             let picked_lit = self.cvsids.pick_literal();
-            dl += 1;
-            self.decide(dl, &picked_lit, None);
+            self.dl += 1;
+            self.decide(self.dl, &picked_lit, None);
 
             debug!("decided literal: {picked_lit}");
 
@@ -185,9 +182,9 @@ impl Model {
                     SolverState::Resolving(conflict) => {
                         debug!("conflict, clause: {conflict:?}");
 
-                        if dl == 0 { return Left(false); }
+                        if self.dl == 0 { return Left(false); }
 
-                        if let Some(assertion_lit) = self.get_assertion_lit(&conflict, &dl) {
+                        if let Some(assertion_lit) = self.get_assertion_lit(&conflict, &self.dl) {
                             debug!("found assertion literal: {assertion_lit}");
                             let conflict_rc = Rc::new(conflict.clone());
 
@@ -217,12 +214,12 @@ impl Model {
 
                             if let Some((level, _, _)) =
                                 self.decision_stack.last() {
-                                dl = *level;
+                                self.dl = *level;
                             } else {
-                                dl = 0;
+                                self.dl = 0;
                             }
 
-                            self.decide(dl,
+                            self.decide(self.dl,
                                         &-assertion_lit,
                                         Some(Rc::clone(&conflict_rc)));
 
@@ -265,7 +262,7 @@ impl Model {
                                 continue;
                             }
 
-                            self.decide(dl, &lit, Some(uc));
+                            self.decide(self.dl, &lit, Some(uc));
                             self.cvsids.propagated_variable(&(lit.abs() as Var));
 
                             debug!("propagated {lit}");

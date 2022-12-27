@@ -49,6 +49,34 @@ impl WatchedLiterals {
         wl
     }
 
+    fn lit_state(
+        lit: &Lit,
+        assignment: &Assignment
+    ) -> LitState {
+        match assignment.get(&(lit.abs() as Var)).unwrap() {
+            VarState::Positive => if lit.is_positive() { LitState::Satisfied }
+            else { LitState::Unsatisfied },
+            VarState::Negative => if lit.is_negative() { LitState::Satisfied }
+            else { LitState::Unsatisfied },
+            VarState::Undefined => LitState::Unknown,
+        }
+    }
+
+    fn search_not_sat(
+        clause: &Clause,
+        wl1: &Lit,
+        wl2: &Lit,
+        assignment: &Assignment,
+    ) -> Option<Lit> {
+        clause.iter()
+            .filter(|&l| (*l != *wl1) & (*l != *wl2))
+            .find(|&l| match Self::lit_state(l, &assignment) {
+                LitState::Satisfied | LitState::Unknown => true,
+                LitState::Unsatisfied => false,
+            })
+            .map(Lit::clone)
+    }
+
     fn get_clauses(
         &self,
         lit: &Lit
@@ -78,35 +106,7 @@ impl WatchedLiterals {
         }
     }
 
-    fn lit_state(
-        lit: &Lit,
-        assignment: &Assignment
-    ) -> LitState {
-        match assignment.get(&(lit.abs() as Var)).unwrap() {
-            VarState::Positive => if lit.is_positive() { LitState::Satisfied }
-            else { LitState::Unsatisfied },
-            VarState::Negative => if lit.is_negative() { LitState::Satisfied }
-            else { LitState::Unsatisfied },
-            VarState::Undefined => LitState::Unknown,
-        }
-    }
-
-    fn search_not_sat(
-        clause: &Clause,
-        wl1: &Lit,
-        wl2: &Lit,
-        assignment: &Assignment,
-    ) -> Option<Lit> {
-        clause.iter()
-            .filter(|&l| (*l != *wl1) & (*l != *wl2))
-            .find(|&l| match Self::lit_state(l, &assignment) {
-                LitState::Satisfied | LitState::Unknown => true,
-                LitState::Unsatisfied => false,
-            })
-            .map(Lit::clone)
-    }
-
-    pub fn replace(
+    fn replace(
         &mut self,
         clause: Rc<Clause>,
         old: &Lit,
@@ -230,4 +230,66 @@ impl fmt::Display for WatchedLiterals {
 
         write!(f, "")
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::VecDeque;
+    use super::*;
+
+    #[test]
+    fn test_learn_clause() {
+        let clauses: Vec<Rc<Clause>> = vec![
+            Rc::new(vec![1, 2, 3]),
+        ];
+        let variables: HashSet<Var> = HashSet::from([1, 2, 3]);
+        let mut wl = WatchedLiterals::new(&clauses, &variables);
+        let assignment: Assignment = Assignment::from([
+            (1, VarState::Positive),
+            (2, VarState::Undefined),
+            (3, VarState::Undefined),
+        ]);
+        wl.learn_clause(Rc::new(vec![-1, -2]), &-1);
+        assert_eq!(wl.decision(&1, &assignment), Right(VecDeque::from([
+            (Rc::new(vec![-1, -2]), -2),
+        ])));
+    }
+
+    #[test]
+    fn test_decision() {
+        let clauses: Vec<Rc<Clause>> = vec![
+            Rc::new(vec![-1, 2]),
+            Rc::new(vec![-1]),
+        ];
+        let variables: HashSet<Var> = HashSet::from([1, 2, 3]);
+        let mut wl = WatchedLiterals::new(&clauses, &variables);
+
+        let assignment: Assignment = Assignment::from([
+            (1, VarState::Positive),
+            (2, VarState::Undefined),
+            (3, VarState::Undefined),
+        ]);
+
+        assert_eq!(wl.decision(&1, &assignment), Left(vec![-1]));
+    }
+
+    #[test]
+    fn test_decision_2() {
+        let clauses: Vec<Rc<Clause>> = vec![
+            Rc::new(vec![-1, 3]),
+        ];
+        let variables: HashSet<Var> = HashSet::from([1, 2, 3]);
+        let mut wl = WatchedLiterals::new(&clauses, &variables);
+
+        let assignment: Assignment = Assignment::from([
+            (1, VarState::Positive),
+            (2, VarState::Undefined),
+            (3, VarState::Undefined),
+        ]);
+
+        assert_eq!(wl.decision(&1, &assignment), Right(VecDeque::from([
+            (Rc::new(vec![-1, 3]), 3),
+        ])));
+    }
+
 }

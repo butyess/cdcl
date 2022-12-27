@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Shr;
 
 use priority_queue::PriorityQueue;
 
@@ -17,7 +18,7 @@ impl CVSIDS {
             variables: variables.iter().map(|&x| (x, 0)).collect(),
             signs: HashMap::new(),
             bump_const: 1,
-            decay_inverse: 5.0 / 6.0,
+            decay_inverse: 6.0 / 5.0,
         }
     }
 
@@ -45,31 +46,119 @@ impl CVSIDS {
         self.variables.push(*var, 0);
     }
 
-    fn scale_all_priorities(&mut self, amount: u32) {
-        for (_v, p) in self.variables.iter_mut() {
-            *p = p.checked_shr(amount).unwrap();
-        }
-    }
-
     pub fn decay(&mut self) {
         self.bump_const = ((self.decay_inverse * self.bump_const as f32).ceil()) as u32;
     }
 
-    pub fn bump(&mut self, var: &Var) {
-        let mut overflow = false;
-
-        self.variables.change_priority_by(var, |p| {
-            match p.checked_mul(self.bump_const) {
-                Some(out) => { *p = out; }
-                None => { overflow = true; }
-            }
-        });
-
-        if overflow {
-            self.scale_all_priorities(10);
-            self.bump(var);
+    fn scale_all_priorities(&mut self, amount: u32) {
+        for (_var, prio) in self.variables.iter_mut() {
+            *prio = prio.shr(amount);
         }
-
     }
 
+    pub fn bump(&mut self, var: &Var) {
+        let prio = self.variables.get_priority(var)
+            .expect("Bumped variable not in CVSIDS memory");
+
+        match prio.checked_add(self.bump_const) {
+            Some(newprio) => { self.variables.change_priority(var, newprio); }
+            None => {
+                self.scale_all_priorities(10);
+                self.variables.change_priority(var, self.variables.get_priority(var).unwrap() + self.bump_const);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_cvsids_keep_sign() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        assert_eq!(cvsids.pick_literal(), 1);
+        cvsids.revert_variable(&1);
+        cvsids.bump(&1);
+        assert_eq!(cvsids.pick_literal(), 1);
+    }
+
+    #[test]
+    fn test_cvsids_propagate_variable() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        cvsids.bump(&2);
+        cvsids.bump(&2);
+        cvsids.propagated_variable(&2);
+        assert_eq!(cvsids.pick_literal(), 1);
+    }
+
+    #[test]
+    fn test_cvsids_revert_variable() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        assert_eq!(cvsids.pick_literal(), 1);
+        cvsids.bump(&2);
+        cvsids.revert_variable(&1);
+        assert_eq!(cvsids.pick_literal(), 2);
+    }
+
+    #[test]
+    fn test_cvsids_decay() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1]));
+        cvsids.decay();
+        cvsids.bump(&1);
+        assert_eq!(*cvsids.variables.get_priority(&1).unwrap(), 2);
+    }
+
+    #[test]
+    fn simple_test_cvsids() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        assert_eq!(cvsids.pick_literal(), 1);
+        cvsids.bump(&3);
+        assert_eq!(cvsids.pick_literal(), 3);
+        cvsids.propagated_variable(&4);
+        assert_eq!(cvsids.pick_literal(), 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_fail_cvsids() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        cvsids.pick_literal();
+        cvsids.bump(&1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_fail_cvsids_2() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
+        cvsids.bump(&1);
+        cvsids.bump(&2);
+        cvsids.bump(&3);
+        cvsids.bump(&4);
+        cvsids.bump(&5);
+    }
+
+    #[test]
+    fn test_cvsids_bump_overflow() {
+        let mut cvsids = CVSIDS::new(&HashSet::from([1, 2]));
+        cvsids.bump(&1);
+        println!("{:?}", cvsids.variables);
+
+        cvsids.bump_const = u32::MAX;
+        cvsids.bump(&1);
+        println!("{:?}", cvsids.variables);
+
+        cvsids.scale_all_priorities(10);
+        println!("{:?}", cvsids.variables);
+
+        let x = u32::MAX.shr(10);
+        let prio = cvsids.variables.get_priority(&1).unwrap();
+
+        assert_eq!(x, *prio);
+    }
 }
