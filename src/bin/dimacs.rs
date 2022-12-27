@@ -1,3 +1,8 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_imports)]
+
 use std::env;
 use std::fs;
 use std::io::{self, BufReader, BufRead};
