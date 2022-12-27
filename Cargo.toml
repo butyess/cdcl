@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 priority-queue = "1.3.0"
 either = "1.8"
+env_logger = "0.10.0"
+log = "0.4.17"
 
 [lib]
 name = "cdcl_lib"

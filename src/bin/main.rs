@@ -11,8 +11,8 @@ fn main() {
         vec![2],
     ];
 
-    let out = solve(clauses);
+    let _out = solve(clauses);
 
-    println!("output: {}", out);
+    // println!("output: {}", out);
 
 }

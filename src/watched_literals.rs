@@ -149,6 +149,7 @@ impl WatchedLiterals {
         // while let Some(clause) = self.get_any_clause(-lit) {
         for clause in neg_clauses.iter() {
             let other_lit = self.get_other_watched_sentinel(clause, &-lit);
+
             match Self::lit_state(&other_lit, &assignment) {
                 LitState::Satisfied => { continue; },
                 LitState::Unsatisfied | LitState::Unknown => {

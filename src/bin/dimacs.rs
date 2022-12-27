@@ -7,9 +7,13 @@ use std::env;
 use std::fs;
 use std::io::{self, BufReader, BufRead};
 
-use cdcl_lib::model::{Clause, solve};
+use either::{Left, Right};
+
+use cdcl_lib::model::{Clause, solve, VarState};
 
 fn main() {
+
+    env_logger::init();
 
     let input = env::args().nth(1);
     let reader: Box<dyn BufRead> = match input {
@@ -46,23 +50,18 @@ fn main() {
         std::process::exit(-1);
     }
 
-    // println!("n_vars: {}", _nvars);
-    // println!("n_clauses: {}", nclauses);
-
-    // for clause in &clauses {
-    //     for l in clause {
-    //         print!("{} ", &l);
-    //     }
-    //     println!("");
-    // }
-
-    // let mut model: Model = Model::new(clauses);
-
-    let out = solve(clauses);
-    if out {
-        println!("satisfied");
-    } else {
-        println!("unsatisfied");
+    match solve(clauses) {
+        Left(b) => { println!("Unsatisfied, this is false: {b}") },
+        Right(ass) => {
+            println!("Satisfied, assignment:");
+            for (v, s) in ass {
+                match s {
+                    VarState::Positive => { println!("{v}"); },
+                    VarState::Negative => { println!("-{v}"); },
+                    VarState::Undefined => { }
+                }
+            }
+        }
     }
 
 }
