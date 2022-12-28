@@ -25,7 +25,7 @@ enum SolverState { Propagating(UnitClauses), Resolving(ConflictClause) }
 pub type Assignment = HashMap<Var, VarState>;
 type DecisionStack = Vec<(i32, Lit, Option<Rc<Clause>>)>;
 
-fn resolution_step(left: &Clause, right: &Clause) -> Clause {
+fn resolution(left: &Clause, right: &Clause) -> Clause {
     let mut newclause = Clause::new();
     for l in left {
         if !right.contains(&-l) { newclause.push(*l); }
@@ -124,7 +124,71 @@ impl Model {
         }
     }
 
-    // fn backjump(&mut self, assertion_literal: &Lit, assertion_clause: Rc<Clause>) -> SolverState {}
+    fn backjump(
+        &mut self,
+        assertion_literal: &Lit,
+        assertion_clause: &Rc<Clause>
+    ) -> SolverState {
+        // bump
+        assertion_clause.iter()
+            .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
+
+        // learn (1)
+        self.watched_literals.learn_clause(Rc::clone(&assertion_clause), &-assertion_literal);
+        self.cvsids.decay();
+
+        // backjump
+        let non_assert_lits: HashSet<&Lit> = assertion_clause.iter()
+            .filter(|&l| l != &-assertion_literal)
+            .collect();
+
+        while let Some((level, lit, justification))
+            = self.decision_stack.pop() {
+            if non_assert_lits.contains(&-lit) {
+                self.decision_stack.push((level, -lit, justification));
+                break;
+            } else {
+                self.revert(&lit);
+                self.cvsids.revert_variable(&(lit.abs() as Var));
+            }
+        }
+
+        if let Some((level, _, _)) =
+            self.decision_stack.last() {
+            self.dl = *level;
+        } else {
+            self.dl = 0;
+        }
+
+        self.decide(self.dl,
+                    &-assertion_literal,
+                    Some(Rc::clone(&assertion_clause)));
+
+        match self.watched_literals.decision(&-assertion_literal, &self.assignment) {
+            Left(confl) => SolverState::Resolving(confl),
+            Right(units) => SolverState::Propagating(units)
+        }
+    }
+
+    fn resolve(&mut self, conflict: &Clause) -> SolverState {
+        let mut j: Option<Rc<Clause>> = None;
+
+        // resolve
+        for (_, lit, just) in self.decision_stack.iter().rev() {
+            if conflict.contains(&-lit) {
+                j = just.clone();
+                break;
+            }
+        }
+
+        let justification = j.expect("Found no justification");
+
+        let new_clause = resolution(conflict, &justification);
+
+        debug!("resolving: {conflict:?} + {justification:?} = {new_clause:?}");
+
+        SolverState::Resolving(new_clause)
+    }
 
     pub fn solve(&mut self) -> Either<bool, &Assignment> {
 
@@ -184,74 +248,16 @@ impl Model {
 
                         if self.dl == 0 { return Left(false); }
 
-                        if let Some(assertion_lit) = self.get_assertion_lit(&conflict, &self.dl) {
+                        if let Some(assertion_lit) =
+                            self.get_assertion_lit(&conflict, &self.dl) {
+
                             debug!("found assertion literal: {assertion_lit}");
                             let conflict_rc = Rc::new(conflict.clone());
-
-                            // bump
-                            conflict.iter()
-                                .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
-
-                            // learn (1)
-                            self.watched_literals.learn_clause(Rc::clone(&conflict_rc), &-assertion_lit);
-                            self.cvsids.decay();
-
-                            // backjump
-                            let non_assert_lits: HashSet<&Lit> = conflict.iter()
-                                .filter(|&l| *l != -assertion_lit)
-                                .collect();
-
-                            while let Some((level, lit, justification))
-                                = self.decision_stack.pop() {
-                                if non_assert_lits.contains(&-lit) {
-                                    self.decision_stack.push((level, -lit, justification));
-                                    break;
-                                } else {
-                                    self.revert(&lit);
-                                    self.cvsids.revert_variable(&(lit.abs() as Var));
-                                }
-                            }
-
-                            if let Some((level, _, _)) =
-                                self.decision_stack.last() {
-                                self.dl = *level;
-                            } else {
-                                self.dl = 0;
-                            }
-
-                            self.decide(self.dl,
-                                        &-assertion_lit,
-                                        Some(Rc::clone(&conflict_rc)));
-
-                            match self.watched_literals.decision(&-assertion_lit, &self.assignment) {
-                                Left(confl) => {
-                                    solver_state = SolverState::Resolving(confl);
-                                },
-                                Right(units) => {
-                                    solver_state = SolverState::Propagating(units);
-                                }
-                            }
-
-                            // learn (2)
+                            solver_state = self.backjump(&assertion_lit, &conflict_rc);
                             self.clauses.push(conflict_rc);
+
                         } else {
-                            let mut j: Option<Rc<Clause>> = None;
-
-                            // resolve
-                            for (_, lit, just) in self.decision_stack.iter().rev() {
-                                if conflict.contains(&-lit) {
-                                    j = just.clone();
-                                    break;
-                                }
-                            }
-
-                            let justification = j.expect("Found no justification");
-
-                            let new_clause = resolution_step(conflict, &justification);
-
-                            debug!("resolving: {conflict:?} + {justification:?} = {new_clause:?}");
-
-                            solver_state = SolverState::Resolving(new_clause);
+                            solver_state = self.resolve(&conflict);
                         }
                     },
                     SolverState::Propagating(units) => {
