@@ -52,16 +52,22 @@ fn main() {
 
     let mut model = Model::new(clauses);
     match model.solve() {
-        Left(b) => { println!("Unsatisfied, this is false: {b}") },
+        Left(proof) => {
+            println!("Unsatisfied, proof length: {}", proof.len());
+            // for (a, b, c) in proof.iter() {
+            //     println!("{a:?} + {b:?} = {c:?}");
+            // }
+        },
         Right(ass) => {
-            println!("Satisfied, assignment:");
+            print!("Satisfied, assignment: ");
             for (v, s) in ass {
                 match s {
-                    VarState::Positive => { println!("{v}"); },
-                    VarState::Negative => { println!("-{v}"); },
+                    VarState::Positive => { print!("{v}, "); },
+                    VarState::Negative => { print!("-{v}, "); },
                     VarState::Undefined => { }
                 }
             }
+            println!();
         }
     }
 }

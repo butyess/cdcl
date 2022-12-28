@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use either::{Either, Right, Left};
-use log::info;
+// use log::info;
 
 use crate::model::{Var, Lit, Clause, ConflictClause, UnitClauses, VarState, Assignment};
 
@@ -11,7 +11,9 @@ enum LitState { Satisfied, Unsatisfied, Unknown, }
 
 #[derive(Debug)]
 pub struct WatchedLiterals {
+    // attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)>,
     attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)>,
+    // sentinels: HashMap<Rc<Clause>, (Lit, Lit)>,
     sentinels: HashMap<Rc<Clause>, (Lit, Lit)>,
     singleton_clauses: Vec<Rc<Clause>>,
 }
@@ -46,8 +48,6 @@ impl WatchedLiterals {
                 }
             }
         }
-
-        info!("{wl}");
 
         wl
     }
@@ -105,10 +105,10 @@ impl WatchedLiterals {
     ) -> Lit {
         let wl = self.sentinels.get(clause).unwrap();
         if wl.0 == *lit { wl.1 } else if wl.1 == *lit { wl.0 } else {
-            info!("clause: {clause:?}, lit: {lit}, wl: {wl:?}");
-            info!("lit clauses: {:?}", self.attached_clauses.get(&(lit.abs() as Var)).unwrap());
-            info!("wl0 clauses: {:?}", self.attached_clauses.get(&(wl.0.abs() as Var)).unwrap());
-            info!("wl1 clauses: {:?}", self.attached_clauses.get(&(wl.1.abs() as Var)).unwrap());
+            // info!("clause: {clause:?}, lit: {lit}, wl: {wl:?}");
+            // info!("lit clauses: {:?}", self.attached_clauses.get(&(lit.abs() as Var)).unwrap());
+            // info!("wl0 clauses: {:?}", self.attached_clauses.get(&(wl.0.abs() as Var)).unwrap());
+            // info!("wl1 clauses: {:?}", self.attached_clauses.get(&(wl.1.abs() as Var)).unwrap());
             panic!("Asked for other sentinel but the literal is not in the clause");
         }
     }
@@ -120,7 +120,7 @@ impl WatchedLiterals {
         new: &Lit,
         other: &Lit,
     ) {
-        info!("changing {old} with {new} in {clause:?}, where other lit is {other}");
+        // info!("changing {old} with {new} in {clause:?}, where other lit is {other}");
         assert_ne!(old, new);
         assert_ne!(new, other);
         assert_ne!(old, other);
@@ -176,6 +176,7 @@ impl WatchedLiterals {
                         None => {
                             match Self::lit_state(&other_lit, &assignment) {
                                 LitState::Unknown => {
+                                    // info!("Found unit clause: {}")
                                     unit_clauses.push_back((Rc::clone(clause), other_lit));
                                 },
                                 LitState::Unsatisfied => { return Left((**clause).clone()); }
@@ -199,11 +200,17 @@ impl WatchedLiterals {
         clause: Rc<Clause>,
         lit: &Lit
     ) {
-        info!("learning {clause:?}");
+        // info!("learning {clause:?}");
         if clause.len() == 1{
             self.singleton_clauses.push(Rc::clone(&clause));
         } else if self.sentinels.contains_key(&clause) {
-            // TODO
+            let (s0, s1) = self.sentinels.get(&clause).unwrap().clone();
+
+            if *lit != s0 && *lit != s1 {
+                self.replace(Rc::clone(&clause), &s0, lit, &s1);
+            }
+
+
         } else {
             // search for sentinels to watch: a learnt clause is surely conflict, and will
             // become satisfied in the next step (that is a backjump), so it's important to
@@ -253,7 +260,7 @@ impl fmt::Display for WatchedLiterals {
 
 #[cfg(test)]
 mod test {
-    use std::collections::VecDeque;
+    use std::collections::{HashSet, VecDeque};
     use super::*;
 
     #[test]

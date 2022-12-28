@@ -35,7 +35,8 @@ impl CVSIDS {
         if sign {
             var as Lit
         } else {
-            var.checked_neg().unwrap() as Lit
+            panic!("can't pick a negative literal");
+            // var.checked_neg().unwrap() as Lit
         }
     }
 
@@ -44,7 +45,7 @@ impl CVSIDS {
     }
 
     pub fn revert_variable(&mut self, var: &Var) {
-        self.variables.push(*var, 0);
+        self.variables.push(*var, *var);
     }
 
     pub fn decay(&mut self) {
@@ -72,6 +73,7 @@ impl CVSIDS {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashSet;
     use super::*;
 
     #[test]
