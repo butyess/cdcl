@@ -117,6 +117,8 @@ impl Model {
             .map(|(_, lit, _)| lit)
             .collect();
 
+        debug!("current level literal of conflict clause found: {:?}", last_level_lits);
+
         match last_level_lits.len() {
             0 => { panic!("No literal found in last level while checking for assertion clause"); }
             1 => Some(**last_level_lits.first().unwrap()),
@@ -129,10 +131,6 @@ impl Model {
         assertion_literal: &Lit,
         assertion_clause: &Rc<Clause>
     ) -> SolverState {
-        // bump
-        assertion_clause.iter()
-            .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
-
         // learn (1)
         self.watched_literals.learn_clause(Rc::clone(&assertion_clause), &-assertion_literal);
         self.cvsids.decay();
@@ -153,6 +151,10 @@ impl Model {
             }
         }
 
+        // bump
+        assertion_clause.iter()
+            .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
+
         if let Some((level, _, _)) =
             self.decision_stack.last() {
             self.dl = *level;
@@ -160,9 +162,8 @@ impl Model {
             self.dl = 0;
         }
 
-        self.decide(self.dl,
-                    &-assertion_literal,
-                    Some(Rc::clone(&assertion_clause)));
+        self.decide(self.dl, &-assertion_literal, Some(Rc::clone(&assertion_clause)));
+        self.cvsids.propagated_variable(&(assertion_literal.abs() as Var));
 
         match self.watched_literals.decision(&-assertion_literal, &self.assignment) {
             Left(confl) => SolverState::Resolving(confl),
@@ -250,8 +251,7 @@ impl Model {
 
                         if let Some(assertion_lit) =
                             self.get_assertion_lit(&conflict, &self.dl) {
-
-                            debug!("found assertion literal: {assertion_lit}");
+                            debug!("found assertion literal: {assertion_lit}. now backjumping...");
                             let conflict_rc = Rc::new(conflict.clone());
                             solver_state = self.backjump(&assertion_lit, &conflict_rc);
                             self.clauses.push(conflict_rc);

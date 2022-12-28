@@ -5,6 +5,7 @@ use priority_queue::PriorityQueue;
 
 use crate::model::{Var, Lit};
 
+#[derive(Debug)]
 pub struct CVSIDS {
     variables: PriorityQueue<Var, u32>,
     signs: HashMap<Var, bool>,
@@ -57,14 +58,13 @@ impl CVSIDS {
     }
 
     pub fn bump(&mut self, var: &Var) {
-        let prio = self.variables.get_priority(var)
-            .expect("Bumped variable not in CVSIDS memory");
-
-        match prio.checked_add(self.bump_const) {
-            Some(newprio) => { self.variables.change_priority(var, newprio); }
-            None => {
-                self.scale_all_priorities(10);
-                self.variables.change_priority(var, self.variables.get_priority(var).unwrap() + self.bump_const);
+        if let Some(prio) =  self.variables.get_priority(var) {
+            match prio.checked_add(self.bump_const) {
+                Some(newprio) => { self.variables.change_priority(var, newprio); }
+                None => {
+                    self.scale_all_priorities(10);
+                    self.variables.change_priority(var, self.variables.get_priority(var).unwrap() + self.bump_const);
+                }
             }
         }
     }
@@ -124,8 +124,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn test_fail_cvsids() {
+    fn test_not_fail_cvsids() {
         let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
         cvsids.bump(&1);
         cvsids.pick_literal();
@@ -133,8 +132,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn test_fail_cvsids_2() {
+    fn test_not_fail_cvsids_2() {
         let mut cvsids = CVSIDS::new(&HashSet::from([1, 2, 3, 4]));
         cvsids.bump(&1);
         cvsids.bump(&2);
