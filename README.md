@@ -1,5 +1,25 @@
 # Benchmarks
 
+## Uniform random from SATLIB:
+
+| File name       | Arch   | Rust DPLL |
+|-----------------|--------|-----------|
+|   uuf125-01.cnf | Air M1 |    25.422 |
+|  uuf125-010.cnf | Air M1 |  1:22.480 |
+| uuf125-0100.cnf | Air M1 |    55.452 |
+|  uuf125-011.cnf | Air M1 |  2:12.120 |
+|  uuf125-012.cnf | Air M1 |  2:07.400 |
+|  uuf125-013.cnf | Air M1 |    42.785 |
+|  uuf125-014.cnf | Air M1 |    49.092 |
+|  uuf125-015.cnf | Air M1 |  2:21.440 |
+|  uuf125-016.cnf | Air M1 |  1:18.560 |
+|  uuf125-017.cnf | Air M1 |    12.366 |
+|  uuf125-018.cnf | Air M1 |    59.444 |
+|  uuf125-019.cnf | Air M1 |  1:05.600 |
+|   uuf125-02.cnf | Air M1 |  4:42.180 |
+|  uuf125-020.cnf | Air M1 |    11.879 |
+|  uuf125-021.cnf | Air M1 |    20.802 |
+
 ## Pigeonhole problem
 
 - PPH is number of pigeons per holes
