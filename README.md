@@ -2,7 +2,7 @@
 
 ## Uniform random from SATLIB:
 
-| File name       | Arch   | Rust DPLL |
+| File name       | Arch   | Rust CDCL |
 |-----------------|--------|-----------|
 |   uuf125-01.cnf | Air M1 |    25.422 |
 |  uuf125-010.cnf | Air M1 |  1:22.480 |
