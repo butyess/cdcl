@@ -51,7 +51,8 @@ fn main() {
     }
 
     let model = Model::new(clauses);
-    match model.solve() {
+    let (out, stats) = model.solve();
+    match out {
         Left(proof) => {
             println!("Unsatisfied, proof length: {}", proof.len());
             // for (a, b, c) in proof.iter() {
@@ -70,4 +71,7 @@ fn main() {
             println!();
         }
     }
+
+    println!("stats: {:?}", stats);
+
 }

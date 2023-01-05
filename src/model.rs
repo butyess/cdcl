@@ -50,6 +50,12 @@ pub struct Model {
     proof: ResolutionProof,
     cvsids: CVSIDS,
     watched_literals: WatchedLiterals,
+    conflicts: i32,
+}
+
+#[derive(Debug)]
+pub struct Stats {
+    conflicts: i32,
 }
 
 impl Model {
@@ -86,6 +92,7 @@ impl Model {
             proof: Vec::new(),
             cvsids,
             watched_literals,
+            conflicts: 0,
         }
     }
 
@@ -99,6 +106,7 @@ impl Model {
             proof: Vec::new(),
             cvsids: CVSIDS::new(&self.variables),
             watched_literals: WatchedLiterals::new(&self.clauses, &self.variables),
+            conflicts: self.conflicts,
         }
     }
 
@@ -237,7 +245,7 @@ impl Model {
         SolverState::Resolving(new_clause)
     }
 
-    pub fn solve(mut self) -> Either<ResolutionProof, Assignment> {
+    pub fn solve(mut self) -> (Either<ResolutionProof, Assignment>, Stats) {
         let mut max_conflicts: i32 = 100;
         let mut status: Option<bool> = None;
 
@@ -248,10 +256,13 @@ impl Model {
             println!("too many conflict, resetting...")
         }
 
-        match status.unwrap() {
-            false => Left(self.proof),
-            true => Right(self.assignment),
-        }
+        (
+            match status.unwrap() {
+                false => Left(self.proof),
+                true => Right(self.assignment),
+            },
+            Stats { conflicts: self.conflicts }
+        )
     }
 
     // pub fn search(&mut self, max_conflicts: i32) -> Option<Either<&ResolutionProof, &Assignment>> {
@@ -331,6 +342,7 @@ impl Model {
 
                             if let SolverState::Resolving(_) = solver_state {
                                 nof_conflicts += 1;
+                                self.conflicts += 1;
                             }
 
                         } else {
@@ -353,6 +365,7 @@ impl Model {
                             match &mut self.watched_literals.decision(&lit, &self.assignment) {
                                 Left(conflict) => {
                                     nof_conflicts += 1;
+                                    self.conflicts += 1;
                                     solver_state = SolverState::Resolving(conflict.clone());
                                 },
                                 Right(new_units) => {
