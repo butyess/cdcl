@@ -3,7 +3,8 @@ use std::rc::Rc;
 
 use log::{debug};
 
-use either::{Either, Left, Right};
+// use either::{Either, Left, Right, map};
+use either::*;
 
 use crate::watched_literals::WatchedLiterals;
 use crate::cvsids::CVSIDS;
@@ -85,6 +86,19 @@ impl Model {
             proof: Vec::new(),
             cvsids,
             watched_literals,
+        }
+    }
+
+    fn reset(self) -> Model {
+        Model {
+            clauses: self.clauses.clone(),
+            variables: self.variables.clone(),
+            dl: 0,
+            decision_stack: Vec::new(),
+            assignment: self.variables.iter().map(|&v| (v, VarState::Undefined)).collect(),
+            proof: Vec::new(),
+            cvsids: CVSIDS::new(&self.variables),
+            watched_literals: WatchedLiterals::new(&self.clauses, &self.variables),
         }
     }
 
@@ -223,7 +237,28 @@ impl Model {
         SolverState::Resolving(new_clause)
     }
 
-    pub fn solve(&mut self) -> Either<&ResolutionProof, &Assignment> {
+    pub fn solve(mut self) -> Either<ResolutionProof, Assignment> {
+        let mut max_conflicts: i32 = 100;
+        let mut status: Option<bool> = None;
+
+        while status.is_none() {
+            status = self.search(max_conflicts);
+            max_conflicts = ((max_conflicts as f32) * 1.5) as i32;
+            self = self.reset();
+            println!("too many conflict, resetting...")
+        }
+
+        match status.unwrap() {
+            false => Left(self.proof),
+            true => Right(self.assignment),
+        }
+    }
+
+    // pub fn search(&mut self, max_conflicts: i32) -> Option<Either<&ResolutionProof, &Assignment>> {
+    pub fn search(&mut self, max_conflicts: i32) -> Option<bool> {
+
+
+        let mut nof_conflicts: i32 = 0;
 
         if !self.decision_stack.is_empty() || self.dl != 0 {
             panic!("can't start solving because decision stack is not empty");
@@ -244,7 +279,7 @@ impl Model {
             self.cvsids.propagated_variable(&(lit.abs() as Var));
 
             match self.watched_literals.decision(&lit, &self.assignment) {
-                Left(_conflict) => { return Left(&self.proof); },
+                Left(_conflict) => { return Some(false); },
                 Right(units) => {
                     for (uc, l) in units {
                         unit_clauses.push_back((l, Rc::clone(&uc)))
@@ -254,6 +289,10 @@ impl Model {
         }
 
         while self.decision_stack.len() < self.variables.len() {
+
+            if nof_conflicts > max_conflicts {
+                return None;
+            }
 
             let picked_lit = self.cvsids.pick_literal();
             self.dl += 1;
@@ -281,7 +320,7 @@ impl Model {
                     SolverState::Resolving(conflict) => {
                         debug!("conflict, clause: {conflict:?}");
 
-                        if self.dl == 0 { return Left(&self.proof); }
+                        if self.dl == 0 { return Some(false); }
 
                         if let Some(assertion_lit) =
                             self.get_assertion_lit(&conflict, &self.dl) {
@@ -289,6 +328,10 @@ impl Model {
                             let conflict_rc = Rc::new(conflict.clone());
                             solver_state = self.backjump(&assertion_lit, &conflict_rc);
                             self.clauses.push(conflict_rc);
+
+                            if let SolverState::Resolving(_) = solver_state {
+                                nof_conflicts += 1;
+                            }
 
                         } else {
                             solver_state = self.resolve(&conflict);
@@ -309,6 +352,7 @@ impl Model {
 
                             match &mut self.watched_literals.decision(&lit, &self.assignment) {
                                 Left(conflict) => {
+                                    nof_conflicts += 1;
                                     solver_state = SolverState::Resolving(conflict.clone());
                                 },
                                 Right(new_units) => {
@@ -324,7 +368,7 @@ impl Model {
             }
         }
 
-        Right(&self.assignment)
+        Some(true)
     }
 }
 

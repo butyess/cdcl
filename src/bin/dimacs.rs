@@ -50,7 +50,7 @@ fn main() {
         std::process::exit(-1);
     }
 
-    let mut model = Model::new(clauses);
+    let model = Model::new(clauses);
     match model.solve() {
         Left(proof) => {
             println!("Unsatisfied, proof length: {}", proof.len());
