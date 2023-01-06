@@ -1,31 +1,11 @@
 use std::collections::{HashSet, HashMap, VecDeque};
 use std::rc::Rc;
-
 use log::{debug};
-
-// use either::{Either, Left, Right, map};
 use either::*;
-
 use crate::watched_literals::WatchedLiterals;
 use crate::cvsids::CVSIDS;
+use crate::types::*;
 
-pub type Var = u32;
-pub type Lit = i32;
-pub type Clause = Vec<Lit>;
-
-#[derive(Debug)]
-#[derive(Eq, PartialEq)]
-pub enum VarState { Positive, Negative, Undefined, }
-
-pub type ConflictClause = Clause;
-pub type UnitClauses = VecDeque<(Rc<Clause>, Lit)>;
-
-#[derive(Debug)]
-enum SolverState { Propagating(UnitClauses), Resolving(ConflictClause) }
-
-pub type Assignment = HashMap<Var, VarState>;
-type DecisionStack = Vec<(i32, Lit, Option<Rc<Clause>>)>;
-pub type ResolutionProof = Vec<(Clause, Clause, Clause)>;
 
 fn resolution(left: &Clause, right: &Clause) -> Clause {
     let mut newclause = Clause::new();

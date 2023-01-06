@@ -5,6 +5,7 @@
 
 extern crate core;
 
-pub mod model;
+pub mod solver;
 mod cvsids;
 mod watched_literals;
+mod types;
