@@ -5,24 +5,21 @@ use std::rc::Rc;
 use either::{Either, Right, Left};
 // use log::info;
 
-use crate::model::{Var, Lit, Clause, ConflictClause, UnitClauses, VarState, Assignment};
+// use crate::model::{Var, Lit, Clause, ConflictClause, UnitClauses, VarState, Assignment};
+use crate::types::*;
 
 enum LitState { Satisfied, Unsatisfied, Unknown, }
 
 #[derive(Debug)]
 pub struct WatchedLiterals {
+    // watches: HashMap<Lit, Vec<Rc<Clause>>>,
     // attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)>,
-    attached_clauses: HashMap<Var, (HashSet<Rc<Clause>>, HashSet<Rc<Clause>>)>,
     // sentinels: HashMap<Rc<Clause>, (Lit, Lit)>,
-    sentinels: HashMap<Rc<Clause>, (Lit, Lit)>,
-    singleton_clauses: Vec<Rc<Clause>>,
+    // singleton_clauses: Vec<Rc<Clause>>,
 }
 
 impl WatchedLiterals {
-    pub fn new(
-        clauses: &Vec<Rc<Clause>>,
-        variables: &HashSet<Var>
-    ) -> WatchedLiterals {
+    pub fn new(variables: &[Var]) -> WatchedLiterals {
         let mut wl = WatchedLiterals {
             attached_clauses: variables.iter()
                 .map(|&v| (v, (HashSet::new(), HashSet::new())))

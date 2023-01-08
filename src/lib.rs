@@ -1,11 +1,12 @@
-// #![allow(dead_code)]
-// #![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 // #![allow(unused_mut)]
-// #![allow(unused_imports)]
+#![allow(unused_imports)]
 
 extern crate core;
 
 pub mod solver;
-mod cvsids;
-mod watched_literals;
 mod types;
+
+// mod cvsids;
+// mod watched_literals;

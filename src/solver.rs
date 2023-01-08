@@ -1,12 +1,13 @@
-use std::collections::{HashSet, HashMap, VecDeque};
+use std::collections::{HashMap/*, VecDeque*/};
 use std::rc::Rc;
-use log::{debug};
-use either::*;
-use crate::watched_literals::WatchedLiterals;
-use crate::cvsids::CVSIDS;
 use crate::types::*;
 
+// use log::{debug};
+// use either::*;
+// use crate::watched_literals::WatchedLiterals;
+// use crate::cvsids::CVSIDS;
 
+/*
 fn resolution(left: &Clause, right: &Clause) -> Clause {
     let mut newclause = Clause::new();
     for l in left {
@@ -19,63 +20,89 @@ fn resolution(left: &Clause, right: &Clause) -> Clause {
     }
     newclause
 }
+*/
 
-
-pub struct Model {
-    clauses: Vec<Rc<Clause>>,
-    variables: HashSet<Var>,
-    decision_stack: DecisionStack,
-    dl: i32,
-    assignment: Assignment,
-    proof: ResolutionProof,
-    cvsids: CVSIDS,
-    watched_literals: WatchedLiterals,
+pub struct SolverStats {
     conflicts: i32,
 }
 
-#[derive(Debug)]
-pub struct Stats {
-    conflicts: i32,
+pub struct Solver {
+    clauses : Vec<Rc<Clause>>,
+    learnt  : Vec<Rc<Clause>>,
+    trail   : Vec<Assignment>,
+    level   : usize,
+    watches : HashMap<Lit, Vec<Rc<Clause>>>,
+    model   : HashMap<Var, Sign>,
+    proof   : Vec<(Clause, Clause, Clause)>,
+    stats   : SolverStats,
 }
 
-impl Model {
-
-    pub fn new(
-        init_clauses: Vec<Clause>
-    ) -> Model {
-
-        let clauses: Vec<Rc<Clause>> = init_clauses.into_iter()
-            .map(Rc::new)
-            .collect();
-
-        let mut variables: HashSet<Var> = HashSet::new();
-        clauses.iter()
-            .for_each(|c| {
-                c.iter().for_each(|v| { variables.insert(v.abs() as Var); })
-            });
-
-        let assignment = variables.iter()
-            .map(|&v| (v, VarState::Undefined))
-            .collect();
-
-        let decision_stack = Vec::new();
-
-        let cvsids = CVSIDS::new(&variables);
-        let watched_literals = WatchedLiterals::new(&clauses, &variables);
-
-        Model {
-            clauses,
-            variables,
-            dl: 0,
-            decision_stack,
-            assignment,
+impl Solver {
+    pub fn new() -> Solver {
+        Solver {
+            clauses: Vec::new(),
+            learnt: Vec::new(),
+            trail: Vec::new(),
+            level: 0,
+            watches: HashMap::new(),
+            model: HashMap::new(),
             proof: Vec::new(),
-            cvsids,
-            watched_literals,
-            conflicts: 0,
+            stats: SolverStats { conflicts: 0 }
         }
     }
 
+    pub fn add_clause(&mut self, lits: Vec<Lit>) -> bool {
+        for l in lits.iter() {
+            if !self.model.contains_key(&l.var()) {
+                self.model.insert(l.var(), Sign::Undef);
+            }
+        }
+
+        match Clause::from_lits(lits) {
+            None => return false,
+            Some(Clause::Single(c)) => {
+                let lit = c.lit();
+                let clauseref: Rc<Clause> = Rc::new(Clause::Single(c));
+                self.clauses.push(Rc::clone(&clauseref));
+                self.enqueue(lit, clauseref)
+            },
+            Some(Clause::Many(c)) => {
+                let (l0, l1) = c.wls();
+                let clauseref: Rc<Clause> = Rc::new(Clause::Many(c));
+                for l in [l0, l1] {
+                    if let Some(clauses) = self.watches.get_mut(&l) {
+                        clauses.push(Rc::clone(&clauseref));
+                    } else {
+                        self.watches.insert(l, vec![Rc::clone(&clauseref)]);
+                    }
+                }
+                self.clauses.push(clauseref);
+                true
+            }
+        }
+    }
+
+    fn state(&self, lit: Lit) -> State {
+        match self.model.get(&lit.var()) {
+            Some(Sign::Undef) => State::Undef,
+            Some(s) => if *s == lit.sign() { State::Sat } else { State::Unsat },
+            None => panic!("unknown variable"),
+        }
+    }
+
+    fn enqueue(&mut self, lit: Lit, reason: Rc<Clause>) -> bool {
+        match self.state(lit) {
+            State::Unsat => false,
+            State::Sat => true,
+            State::Undef => {
+                self.model.insert(lit.var(), lit.sign());
+                self.trail.push(Assignment { lit, reason: Some(reason) });
+                true
+            }
+        }
+    }
+
+    /*
     fn reset(self) -> Model {
         Model {
             clauses: self.clauses.clone(),
@@ -86,14 +113,11 @@ impl Model {
             proof: Vec::new(),
             cvsids: CVSIDS::new(&self.variables),
             watched_literals: WatchedLiterals::new(&self.clauses, &self.variables),
-            conflicts: self.conflicts,
+            c'onflicts: self.conflicts,
         }
     }
 
-    fn revert(
-        &mut self,
-        lit: &Lit
-    ) {
+    fn revert(&mut self, lit: &Lit) {
         let val = self.assignment.get_mut(&(lit.abs() as Var)).unwrap();
         *val = VarState::Undefined;
     }
@@ -247,8 +271,6 @@ impl Model {
 
     // pub fn search(&mut self, max_conflicts: i32) -> Option<Either<&ResolutionProof, &Assignment>> {
     pub fn search(&mut self, max_conflicts: i32) -> Option<bool> {
-
-
         let mut nof_conflicts: i32 = 0;
 
         if !self.decision_stack.is_empty() || self.dl != 0 {
@@ -363,12 +385,28 @@ impl Model {
 
         Some(true)
     }
+    */
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
+    #[test]
+    fn test_add_empty_clause() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(vec![]), false)
+    }
+
+    #[test]
+    fn test_add_singleton_clause() {
+        let mut solver = Solver::new();
+        solver.add_clause(vec![Lit::from_i32(1)]);
+        println!("model: {:?}", solver.model);
+        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Pos)]));
+    }
+
+    /*
     #[test]
     fn test_backjumping_2() {
 
@@ -431,4 +469,5 @@ mod test {
             (2, -4, Some(Rc::new(vec![-1, -2, -4]))),
         ])
     }
+    */
 }
