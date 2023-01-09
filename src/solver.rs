@@ -1,4 +1,4 @@
-use std::collections::{HashMap/*, VecDeque*/};
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
 
@@ -26,14 +26,23 @@ pub struct SolverStats {
     conflicts: i32,
 }
 
+#[derive(Debug)]
+pub struct Assignment {
+    pub lit     : Lit,
+    pub reason  : Option<Rc<Clause>>
+}
+
 pub struct Solver {
     clauses : Vec<Rc<Clause>>,
     learnt  : Vec<Rc<Clause>>,
     trail   : Vec<Assignment>,
-    level   : usize,
+    lim     : Vec<usize>,
+    level   : HashMap<Lit, usize>,
+    propq   : VecDeque<Lit>,
     watches : HashMap<Lit, Vec<Rc<Clause>>>,
+    attach  : HashMap<Rc<Clause>, (Lit, Lit)>,
     model   : HashMap<Var, Sign>,
-    proof   : Vec<(Clause, Clause, Clause)>,
+    // proof   : Vec<(ClauseRef, ClauseRef, Clause)>,
     stats   : SolverStats,
 }
 
@@ -43,40 +52,52 @@ impl Solver {
             clauses: Vec::new(),
             learnt: Vec::new(),
             trail: Vec::new(),
-            level: 0,
+            lim: Vec::new(),
+            level: HashMap::new(),
+            propq: VecDeque::new(),
             watches: HashMap::new(),
+            attach: HashMap::new(),
             model: HashMap::new(),
-            proof: Vec::new(),
+            // proof: Vec::new(),
             stats: SolverStats { conflicts: 0 }
         }
     }
 
     pub fn add_clause(&mut self, lits: Vec<Lit>) -> bool {
-        for l in lits.iter() {
-            if !self.model.contains_key(&l.var()) {
-                self.model.insert(l.var(), Sign::Undef);
+        for lit in lits.iter() {
+            if !self.model.contains_key(&lit.var()) {
+                self.model.insert(lit.var(), Sign::Undef);
+            }
+
+            for l in [lit, &lit.neg()] {
+                if !self.watches.contains_key(l) {
+                    self.watches.insert(*l, Vec::new());
+                }
             }
         }
 
-        match Clause::from_lits(lits) {
-            None => return false,
-            Some(Clause::Single(c)) => {
-                let lit = c.lit();
-                let clauseref: Rc<Clause> = Rc::new(Clause::Single(c));
-                self.clauses.push(Rc::clone(&clauseref));
-                self.enqueue(lit, clauseref)
+        match lits.len() {
+            0 => return false,
+            1 => {
+                let lit = lits[0];
+                let clause = Rc::new(Clause::from_lits(lits));
+                self.clauses.push(Rc::clone(&clause));
+                self.enqueue(lit, clause)
             },
-            Some(Clause::Many(c)) => {
-                let (l0, l1) = c.wls();
-                let clauseref: Rc<Clause> = Rc::new(Clause::Many(c));
+            _ => {
+                let l0 = lits[0];
+                let l1 = lits[1];
+                let clause = Rc::new(Clause::from_lits(lits));
                 for l in [l0, l1] {
                     if let Some(clauses) = self.watches.get_mut(&l) {
-                        clauses.push(Rc::clone(&clauseref));
+                        clauses.push(Rc::clone(&clause));
                     } else {
-                        self.watches.insert(l, vec![Rc::clone(&clauseref)]);
+                        panic!("");
+                        // self.watches.insert(l, vec![Rc::clone(&clause)]);
                     }
                 }
-                self.clauses.push(clauseref);
+                self.attach.insert(Rc::clone(&clause), (l0, l1));
+                self.clauses.push(clause);
                 true
             }
         }
@@ -96,10 +117,99 @@ impl Solver {
             State::Sat => true,
             State::Undef => {
                 self.model.insert(lit.var(), lit.sign());
+                self.level.insert(lit, self.decision_level());
                 self.trail.push(Assignment { lit, reason: Some(reason) });
+                self.propq.push_front(lit);
                 true
             }
         }
+    }
+
+    fn decision_level(&self) -> usize {
+        self.lim.len()
+    }
+
+    fn watch(&self, clause: &Rc<Clause>, idx: usize) -> Lit {
+        match idx {
+            0 => self.attach.get(clause).expect("clause not found").0,
+            1 => self.attach.get(clause).expect("clause not found").1,
+            _ => panic!("invalid index for watched literal, can be only 1 or 0")
+        }
+    }
+
+    fn swap_lits(&mut self, clause: &Rc<Clause>) {
+        let (l0, l1) = self.attach.get(clause).unwrap();
+        self.attach.insert(Rc::clone(&clause), (*l1, *l0));
+    }
+
+    fn set_lit(&mut self, clause: &Rc<Clause>, lit: Lit, idx: usize) {
+        let (l0, l1) = self.attach.get(clause).unwrap();
+        match idx {
+            0 => self.attach.insert(Rc::clone(&clause), (lit, *l1)),
+            1 => self.attach.insert(Rc::clone(&clause), (*l0, lit)),
+            _ => panic!("invalid index for watched literal, can be only 1 or 0")
+        };
+    }
+
+    fn insert_clause(&mut self, clause: Rc<Clause>, lit: Lit) {
+        if let Some(clauses) = self.watches.get_mut(&lit) {
+            clauses.push(clause);
+        } else {
+            panic!("No clauses list found for literal");
+        }
+    }
+
+    // do propagation based on the value of the given clause,
+    // pre-conditions: `lit.neg()` is a watched literal of `clause`,
+    // `clause` is not a singleton clause, and `clause` is not in
+    // `self.watches[lit.neg()]`.
+    fn propagate_clause(&mut self, clause: Rc<Clause>, lit: Lit) -> bool {
+        // make sure -lit is not the 0th watched literal
+        if self.watch(&clause, 0) == lit.neg() {
+            self.swap_lits(&clause);
+        }
+
+        // the other literal is satisfied: insert back
+        if self.state(self.watch(&clause, 0)) == State::Sat {
+            self.insert_clause(clause, lit.neg());
+            return true;
+        }
+
+        // search for a new literal
+        let newlit = clause.lits().iter()
+            .filter(|&l| (*l != self.watch(&clause, 0)) & (*l != self.watch(&clause, 1)))
+            .find(|&l| self.state(*l) != State::Unsat);
+
+        match newlit {
+            Some(l) => {
+                // change it with -lit
+                self.set_lit(&clause, *l, 1);
+                self.insert_clause(Rc::clone(&clause), *l);
+                true
+            },
+            None => {
+                // unit or conflict
+                self.insert_clause(Rc::clone(&clause), lit.neg()); // insert back
+                self.enqueue(self.watch(&clause, 0), clause) // if there's a conflict, this will
+                                                             // return false
+            }
+        }
+    }
+
+    fn propagate(&mut self) -> Option<Rc<Clause>> {
+        while let Some(l) = self.propq.pop_back() {
+            let tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
+            self.watches.get_mut(&l.neg()).unwrap().clear();
+            for clause in tmp {
+                if !self.propagate_clause(Rc::clone(&clause), l) {
+                    // propagation failed: conflict
+                    self.propq.clear();
+                    return Some(clause)
+                }
+
+            }
+        }
+        None
     }
 
     /*
@@ -392,6 +502,10 @@ impl Solver {
 mod test {
     use super::*;
 
+    fn make_clause(lits: Vec<i32>) -> Vec<Lit> {
+        lits.into_iter().map(Lit::from_i32).collect()
+    }
+
     #[test]
     fn test_add_empty_clause() {
         let mut solver = Solver::new();
@@ -404,6 +518,32 @@ mod test {
         solver.add_clause(vec![Lit::from_i32(1)]);
         println!("model: {:?}", solver.model);
         assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Pos)]));
+    }
+
+    #[test]
+    fn test_propagation() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(vec![Lit::from_i32(1), Lit::from_i32(2)]), true);
+        assert_eq!(solver.add_clause(vec![Lit::from_i32(-1)]), true);
+        assert_eq!(solver.propagate(), None);
+        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Neg),
+                                                (Var::from_u32(2), Sign::Pos)]));
+    }
+
+    #[test]
+    fn test_conflict_enqueue() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1])), false);
+    }
+
+    #[test]
+    fn test_conflict_propagation() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-2, 1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1])), true);
+        assert_eq!(solver.propagate().is_some(), true);
     }
 
     /*

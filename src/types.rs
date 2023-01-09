@@ -16,6 +16,7 @@ impl Sign {
     }
 }
 
+#[derive(PartialEq, Eq, Hash)]
 pub enum State { Sat, Unsat, Undef }
 
 // literal and variable
@@ -40,6 +41,10 @@ impl Lit {
             false => Sign::Neg,
         }
     }
+
+    pub fn neg(&self) -> Lit {
+        Lit(-self.0)
+    }
 }
 
 #[derive(Debug)]
@@ -55,53 +60,22 @@ impl Var {
 
 // clause
 
-pub struct SingletonClause(Lit);
-pub struct ManyClause {
-    first  : Lit,
-    second : Lit,
-    others : Box<[Lit]>
+#[derive(Debug)]
+#[derive(PartialEq, Eq, Hash)]
+pub struct Clause {
+    lits : Box<[Lit]>
 }
-
-impl SingletonClause {
-    pub fn lit(&self) -> Lit {
-        self.0
-    }
-}
-
-impl ManyClause {
-    pub fn wl(&self, idx: usize) -> Lit {
-        match idx {
-            0 => self.first,
-            1 => self.second,
-            _ => panic!("Bad wl request")
-        }
-    }
-
-    pub fn wls(&self) -> (Lit, Lit) {
-        (self.first, self.second)
-    }
-}
-
-pub enum Clause { Single(SingletonClause), Many(ManyClause) }
 
 impl Clause {
-	pub fn from_lits(mut lits: Vec<Lit>) -> Option<Clause> {
+	pub fn from_lits(lits: Vec<Lit>) -> Clause {
         match lits.len() {
-            0 => None,
-            1 => Some(Clause::Single(SingletonClause(lits[0]))),
-            _ => Some(Clause::Many(ManyClause {
-                    first: lits.pop().unwrap(),
-                    second: lits.pop().unwrap(),
-                    others: lits.into_boxed_slice(),
-                }))
+            0 => panic!("cannot create empty clause"),
+            _ => Clause { lits: lits.into_boxed_slice() }
         }
 	}
-}
 
-// assignment
-
-pub struct Assignment {
-    pub lit     : Lit,
-    pub reason  : Option<Rc<Clause>>
+    pub fn lits(&self) -> &[Lit] {
+        &self.lits
+    }
 }
 
