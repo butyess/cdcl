@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 #[derive(Debug)]
 #[derive(PartialEq, Eq)]
+#[derive(Copy, Clone)]
 pub enum Sign { Pos, Neg, Undef }
 
 impl Sign {
@@ -55,6 +56,14 @@ pub struct Var(u32);
 impl Var {
     pub fn from_u32(v: u32) -> Var {
         Var(v)
+    }
+
+    pub fn to_lit(&self, sign: Sign) -> Lit {
+        match sign {
+            Sign::Pos => Lit::from_i32(self.0 as i32),
+            Sign::Neg => Lit::from_i32(-(self.0 as i32)),
+            _ => panic!("cannot build from undef sign")
+        }
     }
 }
 
