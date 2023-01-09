@@ -62,6 +62,7 @@ impl Var {
 
 #[derive(Debug)]
 #[derive(PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct Clause {
     lits : Box<[Lit]>
 }

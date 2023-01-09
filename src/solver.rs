@@ -151,6 +151,7 @@ impl Solver {
         };
     }
 
+    // inserts `clause` in the list of clauses that have `lit` as a watched literal
     fn insert_clause(&mut self, clause: Rc<Clause>, lit: Lit) {
         if let Some(clauses) = self.watches.get_mut(&lit) {
             clauses.push(clause);
@@ -196,7 +197,7 @@ impl Solver {
         }
     }
 
-    fn propagate(&mut self) -> Option<Rc<Clause>> {
+    fn propagate(&mut self) -> Option<Clause> {
         while let Some(l) = self.propq.pop_back() {
             let tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
             self.watches.get_mut(&l.neg()).unwrap().clear();
@@ -204,12 +205,18 @@ impl Solver {
                 if !self.propagate_clause(Rc::clone(&clause), l) {
                     // propagation failed: conflict
                     self.propq.clear();
-                    return Some(clause)
+                    return Some((*clause).clone())
                 }
 
             }
         }
         None
+    }
+
+    // analyze a conflicts and produces a level to backtrack and a 1-UIP clause
+    // post-conditions: the 1-UIP literal is the first literal of the output clause.
+    fn analyze(&mut self, confl: Clause) -> (usize, Clause) {
+
     }
 
     /*
