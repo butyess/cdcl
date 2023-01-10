@@ -24,6 +24,7 @@ pub enum State { Sat, Unsat, Undef }
 
 #[derive(Debug)]
 #[derive(PartialEq, Eq, Hash)]
+#[derive(PartialOrd, Ord)]
 #[derive(Copy, Clone)]
 pub struct Lit(i32);
 
@@ -50,6 +51,7 @@ impl Lit {
 
 #[derive(Debug)]
 #[derive(PartialEq, Eq, Hash)]
+#[derive(PartialOrd, Ord)]
 #[derive(Copy, Clone)]
 pub struct Var(u32);
 
@@ -71,6 +73,7 @@ impl Var {
 
 #[derive(Debug)]
 #[derive(PartialEq, Eq, Hash)]
+#[derive(PartialOrd, Ord)]
 #[derive(Clone)]
 pub struct Clause {
     lits : Box<[Lit]>

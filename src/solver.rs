@@ -1,48 +1,23 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
-
-// use log::{debug};
-// use either::*;
-// use crate::watched_literals::WatchedLiterals;
-// use crate::cvsids::CVSIDS;
-
-/*
-fn resolution(left: &Clause, right: &Clause) -> Clause {
-    let mut newclause = Clause::new();
-    for l in left {
-        if !right.contains(&-l) { newclause.push(*l); }
-    }
-    for r in right.iter() {
-        if !left.contains(&-r) && !left.contains(r) {
-            newclause.push(*r);
-        }
-    }
-    newclause
-}
-*/
+use log::{debug, info};
 
 pub struct SolverStats {
     conflicts: i32,
 }
-
-// #[derive(Debug)]
-// pub struct Assignment {
-//     lit     : Lit,
-//     reason  : Option<Rc<Clause>>
-// }
 
 pub struct Solver {
     clauses : Vec<Rc<Clause>>,
     learnt  : Vec<Rc<Clause>>,
     trail   : Vec<Lit>,
     lim     : Vec<usize>,
-    model   : HashMap<Var, Sign>,
-    reason  : HashMap<Var, Rc<Clause>>,
-    level   : HashMap<Var, usize>,
+    model   : BTreeMap<Var, Sign>,
+    reason  : BTreeMap<Var, Rc<Clause>>,
+    level   : BTreeMap<Var, usize>,
     propq   : VecDeque<Lit>,
-    watches : HashMap<Lit, Vec<Rc<Clause>>>,
-    attach  : HashMap<Rc<Clause>, (Lit, Lit)>,
+    watches : BTreeMap<Lit, Vec<Rc<Clause>>>,
+    attach  : BTreeMap<Rc<Clause>, (Lit, Lit)>,
     // proof   : Vec<(ClauseRef, ClauseRef, Clause)>,
     stats   : SolverStats,
 }
@@ -54,12 +29,12 @@ impl Solver {
             learnt: Vec::new(),
             trail: Vec::new(),
             lim: Vec::new(),
-            reason: HashMap::new(),
-            level: HashMap::new(),
+            reason: BTreeMap::new(),
+            level: BTreeMap::new(),
             propq: VecDeque::new(),
-            watches: HashMap::new(),
-            attach: HashMap::new(),
-            model: HashMap::new(),
+            watches: BTreeMap::new(),
+            attach: BTreeMap::new(),
+            model: BTreeMap::new(),
             // proof: Vec::new(),
             stats: SolverStats { conflicts: 0 }
         }
@@ -122,6 +97,7 @@ impl Solver {
     }
 
     fn enqueue(&mut self, lit: Lit, reason: Option<Rc<Clause>>) -> bool {
+        debug!("enqueuing {lit:?}");
         match self.state(lit) {
             State::Unsat => false,
             State::Sat => true,
@@ -212,15 +188,23 @@ impl Solver {
 
     fn propagate(&mut self) -> Option<Rc<Clause>> {
         while let Some(l) = self.propq.pop_back() {
-            let tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
+            debug!("propagating {l:?}");
+            let mut tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
             self.watches.get_mut(&l.neg()).unwrap().clear();
-            for clause in tmp {
+
+
+            // for clause in tmp {
+            while let Some(clause) = tmp.pop() {
+                debug!("watching {clause:?}, literals: {:?}", self.attach.get(&clause));
                 if !self.propagate_clause(Rc::clone(&clause), l) {
                     // propagation failed: conflict
                     self.propq.clear();
+                    self.watches.get_mut(&l.neg()).unwrap().append(&mut tmp);
                     return Some(clause)
                 }
             }
+
+
         }
         None
     }
@@ -239,6 +223,9 @@ impl Solver {
 
     fn undo_one(&mut self) {
         let v = self.trail.last().unwrap().var();
+
+        debug!("undoing variable {:?}", v);
+
         // TODO: remove unwrap
         self.model.insert(v, Sign::Undef);
         self.reason.remove(&v); // .unwrap();
@@ -247,14 +234,16 @@ impl Solver {
         self.trail.pop().unwrap();
 
         if let Some(lastlim) = self.lim.last() {
-            self.lim.pop();
+            if *lastlim == self.trail.len() {
+                self.lim.pop();
+            }
         }
     }
 
     fn cancel(&mut self) {
         let c = self.trail.len() - self.lim.last().unwrap();
         for _ in [0..c] {
-            println!("undoing one");
+            debug!("undoing one");
             self.undo_one();
         }
         // self.lim.pop().unwrap();
@@ -270,7 +259,7 @@ impl Solver {
     // post-conditions: the 1-UIP literal is the first literal of the output literals.
     fn analyze(&mut self, confl: Rc<Clause>) -> (usize, Vec<Lit>) {
 
-        let mut seen: HashMap<Var, bool> = self.model.iter()
+        let mut seen: BTreeMap<Var, bool> = self.model.iter()
             .map(|(&k, _)| (k, false))
             .collect();
 
@@ -352,320 +341,47 @@ impl Solver {
         v.to_lit(Sign::Pos)
     }
 
-    fn search(&mut self) -> bool {
+    pub fn search(&mut self) -> bool {
         loop {
-            println!("propagating...");
+            // info!("lits of -10, -18: {:?}", self.attach.get(&Rc::new(Clause::from_lits(vec![
+            //                                                                           Lit::from_i32(-10),
+            //                                                                           Lit::from_i32(-18),
+            // ]))));
+            info!("watched of -10: {:?}", self.watches.get(&Lit::from_i32(-10)));
+
+            debug!("prop quque: {:?}", self.propq);
+            debug!("propagating...");
             if let Some(confl) = self.propagate() {
-                println!("trail: {:?}", self.trail);
-                println!("conflict: {confl:?}");
+                debug!("trail: {:?}", self.trail);
+                debug!("conflict: {confl:?}");
+                debug!("decision level: {}", self.decision_level());
 
                 if self.decision_level() == 0 {
                     return false;
                 }
                 let (lev, assert_lits) = self.analyze(confl);
 
-                println!("lev: {}, assert_lits: {:?}", lev, assert_lits);
-                println!("trail after analyze: {:?}", self.trail);
+                debug!("lev: {}, assert_lits: {:?}", lev, assert_lits);
+                debug!("trail after analyze: {:?}", self.trail);
 
                 self.cancel_until(lev);
                 self.learn(assert_lits);
+
+                debug!("trail after learn: {:?}", self.trail);
+                debug!("decision level after learning: {}", self.decision_level());
             } else {
-                println!("trail: {:?}", self.trail);
+                debug!("trail: {:?}", self.trail);
                 if self.n_assigns() == self.n_vars() {
                     return true;
                 } else {
                     let newlit = self.choose();
-                    println!("deciding {newlit:?}");
+                    debug!("deciding {newlit:?}");
                     self.decide(newlit);
                 }
             }
         }
     }
 
-    /*
-    fn reset(self) -> Model {
-        Model {
-            clauses: self.clauses.clone(),
-            variables: self.variables.clone(),
-            dl: 0,
-            decision_stack: Vec::new(),
-            assignment: self.variables.iter().map(|&v| (v, VarState::Undefined)).collect(),
-            proof: Vec::new(),
-            cvsids: CVSIDS::new(&self.variables),
-            watched_literals: WatchedLiterals::new(&self.clauses, &self.variables),
-            c'onflicts: self.conflicts,
-        }
-    }
-
-    fn revert(&mut self, lit: &Lit) {
-        let val = self.assignment.get_mut(&(lit.abs() as Var)).unwrap();
-        *val = VarState::Undefined;
-    }
-
-    fn decide(
-        &mut self,
-        dl: i32,
-        lit: &Lit,
-        justification: Option<Rc<Clause>>
-    ) {
-        // update decision stack
-        self.decision_stack.push((dl, *lit, justification));
-
-        // update assignments
-        let val = self.assignment.get_mut(&(lit.abs() as Var)).unwrap();
-        *val = if lit.is_positive() { VarState::Positive } else { VarState::Negative };
-    }
-
-    fn get_assertion_lit(
-        &self,
-        clause: &Clause,
-        dl: &i32
-    ) -> Option<Lit> {
-        let last_level_lits: Vec<&Lit> = self.decision_stack.iter()
-            .filter(|(lev, lit, _)| *lev == *dl && clause.contains(&-lit))
-            .map(|(_, lit, _)| lit)
-            .collect();
-
-        debug!("current level literal of conflict clause found: {:?}", last_level_lits);
-
-        match last_level_lits.len() {
-            0 => { panic!("No literal found in last level while checking for assertion clause"); }
-            1 => Some(**last_level_lits.first().unwrap()),
-            _ => None,
-        }
-    }
-
-    fn backjump(
-        &mut self,
-        assertion_literal: &Lit,
-        assertion_clause: &Rc<Clause>
-    ) -> SolverState {
-        // learn (1)
-        self.watched_literals.learn_clause(Rc::clone(&assertion_clause), &-assertion_literal);
-        self.cvsids.decay();
-
-        // backjump
-        let non_assert_lits: HashSet<&Lit> = assertion_clause.iter()
-            .filter(|&l| l != &-assertion_literal)
-            .collect();
-
-        while let Some((level, lit, justification)) = self.decision_stack.pop() {
-
-            if level == 0 {
-                self.decision_stack.push((level, lit, justification));
-                break;
-            }
-
-            let non_assert_in_last_level = self.decision_stack.iter()
-                .rev()
-                .take_while(|(l, _, _)| *l == level)
-                .any(|(_, x, _)| non_assert_lits.contains(&-x));
-
-            if non_assert_in_last_level || non_assert_lits.contains(&-lit) {
-                self.decision_stack.push((level, lit, justification));
-                break;
-            } else {
-                self.revert(&lit);
-                self.cvsids.revert_variable(&(lit.abs() as Var));
-
-                while let Some((levl, l, j)) = self.decision_stack.pop() {
-                    if levl != level {
-                        self.decision_stack.push((levl, l, j));
-                        break;
-                    } else {
-                        self.revert(&l);
-                        self.cvsids.revert_variable(&(l.abs() as Var));
-                    }
-                }
-            }
-
-            // if non_assert_lits.contains(&-lit) {
-            //     self.decision_stack.push((level, lit, justification));
-            //     break;
-            // } else {
-            //     self.revert(&lit);
-            //     self.cvsids.revert_variable(&(lit.abs() as Var));
-            // }
-        }
-
-        // bump
-        assertion_clause.iter()
-            .for_each(|l| self.cvsids.bump(&(l.abs() as Var)));
-
-        if let Some((level, _, _)) =
-            self.decision_stack.last() {
-            self.dl = *level;
-        } else {
-            self.dl = 0;
-        }
-
-        self.decide(self.dl, &-assertion_literal, Some(Rc::clone(&assertion_clause)));
-        self.cvsids.propagated_variable(&(assertion_literal.abs() as Var));
-
-        match self.watched_literals.decision(&-assertion_literal, &self.assignment) {
-            Left(confl) => SolverState::Resolving(confl),
-            Right(units) => SolverState::Propagating(units)
-        }
-    }
-
-    fn resolve(&mut self, conflict: &Clause) -> SolverState {
-        let mut j: Option<Rc<Clause>> = None;
-
-        // resolve
-        for (_, lit, just) in self.decision_stack.iter().rev() {
-            if conflict.contains(&-lit) {
-                j = just.clone();
-                break;
-            }
-        }
-
-        let justification = j.expect("Found no justification");
-
-        let new_clause = resolution(conflict, &justification);
-
-        debug!("resolving: {conflict:?} + {justification:?} = {new_clause:?}");
-        self.proof.push((conflict.clone(), justification.to_vec(), new_clause.clone()));
-
-        SolverState::Resolving(new_clause)
-    }
-
-    pub fn solve(mut self) -> (Either<ResolutionProof, Assignment>, Stats) {
-        let mut max_conflicts: i32 = 100;
-        let mut status: Option<bool> = None;
-
-        while status.is_none() {
-            status = self.search(max_conflicts);
-            max_conflicts = ((max_conflicts as f32) * 1.5) as i32;
-            self = self.reset();
-            println!("too many conflict, resetting...")
-        }
-
-        (
-            match status.unwrap() {
-                false => Left(self.proof),
-                true => Right(self.assignment),
-            },
-            Stats { conflicts: self.conflicts }
-        )
-    }
-
-    // pub fn search(&mut self, max_conflicts: i32) -> Option<Either<&ResolutionProof, &Assignment>> {
-    pub fn search(&mut self, max_conflicts: i32) -> Option<bool> {
-        let mut nof_conflicts: i32 = 0;
-
-        if !self.decision_stack.is_empty() || self.dl != 0 {
-            panic!("can't start solving because decision stack is not empty");
-        }
-
-        let mut unit_clauses: VecDeque<(Lit, Rc<Clause>)> = self.clauses.iter()
-            .filter(|&c| c.len() == 1)
-            .map(|c| (c[0], Rc::clone(c)))
-            .collect();
-
-        // initial unit propagation
-        while let Some((lit, clause)) = unit_clauses.pop_front() {
-            if *self.assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
-                continue;
-            }
-
-            self.decide(self.dl, &lit, Some(clause));
-            self.cvsids.propagated_variable(&(lit.abs() as Var));
-
-            match self.watched_literals.decision(&lit, &self.assignment) {
-                Left(_conflict) => { return Some(false); },
-                Right(units) => {
-                    for (uc, l) in units {
-                        unit_clauses.push_back((l, Rc::clone(&uc)))
-                    }
-                }
-            }
-        }
-
-        while self.decision_stack.len() < self.variables.len() {
-
-            if nof_conflicts > max_conflicts {
-                return None;
-            }
-
-            let picked_lit = self.cvsids.pick_literal();
-            self.dl += 1;
-            self.decide(self.dl, &picked_lit, None);
-
-            debug!("decided literal: {picked_lit}");
-
-            let mut solver_state =
-                match self.watched_literals.decision(&picked_lit, &self.assignment) {
-                    Left(conflict) => SolverState::Resolving(conflict),
-                    Right(units) => SolverState::Propagating(units)
-                };
-
-            loop {
-
-                debug!("starting loop iteration. decision stack:");
-                for l in self.decision_stack.iter() {
-                    debug!("{l:?}");
-                }
-                // debug!("watched literals:");
-                // debug!("{}", self.watched_literals);
-                debug!("solver state: {solver_state:?}");
-
-                match &mut solver_state {
-                    SolverState::Resolving(conflict) => {
-                        debug!("conflict, clause: {conflict:?}");
-
-                        if self.dl == 0 { return Some(false); }
-
-                        if let Some(assertion_lit) =
-                            self.get_assertion_lit(&conflict, &self.dl) {
-                            debug!("found assertion literal: {assertion_lit}. now backjumping...");
-                            let conflict_rc = Rc::new(conflict.clone());
-                            solver_state = self.backjump(&assertion_lit, &conflict_rc);
-                            self.clauses.push(conflict_rc);
-
-                            if let SolverState::Resolving(_) = solver_state {
-                                nof_conflicts += 1;
-                                self.conflicts += 1;
-                            }
-
-                        } else {
-                            solver_state = self.resolve(&conflict);
-                        }
-                    },
-                    SolverState::Propagating(units) => {
-                        debug!("propagating...");
-
-                        if let Some((uc, lit)) = units.pop_front() {
-                            if *self.assignment.get(&(lit.abs() as Var)).unwrap() != VarState::Undefined {
-                                continue;
-                            }
-
-                            self.decide(self.dl, &lit, Some(uc));
-                            self.cvsids.propagated_variable(&(lit.abs() as Var));
-
-                            debug!("propagated {lit}");
-
-                            match &mut self.watched_literals.decision(&lit, &self.assignment) {
-                                Left(conflict) => {
-                                    nof_conflicts += 1;
-                                    self.conflicts += 1;
-                                    solver_state = SolverState::Resolving(conflict.clone());
-                                },
-                                Right(new_units) => {
-                                    units.append(new_units);
-                                }
-                            }
-                        } else {
-                            debug!("no more propagation to be done!");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        Some(true)
-    }
-    */
 }
 
 #[cfg(test)]
@@ -686,8 +402,8 @@ mod test {
     fn test_add_singleton_clause() {
         let mut solver = Solver::new();
         solver.add_clause(vec![Lit::from_i32(1)], false);
-        println!("model: {:?}", solver.model);
-        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Pos)]));
+        debug!("model: {:?}", solver.model);
+        assert_eq!(solver.model, BTreeMap::from([(Var::from_u32(1), Sign::Pos)]));
     }
 
     #[test]
@@ -696,7 +412,7 @@ mod test {
         assert_eq!(solver.add_clause(vec![Lit::from_i32(1), Lit::from_i32(2)], false), true);
         assert_eq!(solver.add_clause(vec![Lit::from_i32(-1)], false), true);
         assert_eq!(solver.propagate(), None);
-        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Neg),
+        assert_eq!(solver.model, BTreeMap::from([(Var::from_u32(1), Sign::Neg),
                                                 (Var::from_u32(2), Sign::Pos)]));
     }
 
@@ -741,9 +457,9 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
         solver.decide(Lit::from_i32(1));
-        println!("pqueue: {:?}", solver.propq);
+        debug!("pqueue: {:?}", solver.propq);
         let out = solver.propagate();
-        println!("out: {:?}", out);
+        debug!("out: {:?}", out);
         assert_eq!(out.is_none(), false);
     }
 
@@ -756,12 +472,12 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
         solver.decide(Lit::from_i32(1));
         let confl = solver.propagate().unwrap();
-        println!("trail: {:?}", solver.trail);
-        println!("level: {:?}", solver.level);
-        println!("reason: {:?}", solver.reason);
-        println!("conflict: {:?}", confl);
+        debug!("trail: {:?}", solver.trail);
+        debug!("level: {:?}", solver.level);
+        debug!("reason: {:?}", solver.reason);
+        debug!("conflict: {:?}", confl);
         let (lev, ass_clause) = solver.analyze(confl);
-        println!("lev: {lev}, clause: {ass_clause:?}");
+        debug!("lev: {lev}, clause: {ass_clause:?}");
         assert_eq!(lev, 0);
         assert_eq!(ass_clause, make_clause(vec![-1]))
         // panic!("the disco");
@@ -788,7 +504,7 @@ mod test {
         solver.decide(Lit::from_i32(3));
         solver.decide(Lit::from_i32(4));
         solver.cancel_until(3);
-        println!("trail: {:?}", solver.trail);
+        debug!("trail: {:?}", solver.trail);
         assert_eq!(solver.decision_level(), 3);
     }
 
@@ -802,8 +518,21 @@ mod test {
         solver.decide(Lit::from_i32(4));
         assert_eq!(solver.propagate().is_some(), false);
         solver.cancel_until(3);
-        println!("trail: {:?}", solver.trail);
+        debug!("trail: {:?}", solver.trail);
         assert_eq!(solver.decision_level(), 3);
+    }
+
+    #[test]
+    fn test_cancel_4() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5]), false), true);
+        solver.decide(Lit::from_i32(1));
+        solver.decide(Lit::from_i32(2));
+        solver.decide(Lit::from_i32(3));
+        solver.undo_one();
+        solver.undo_one();
+        solver.undo_one();
+        assert_eq!(solver.decision_level(), 0);
     }
 
     #[test]
@@ -822,16 +551,16 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
         solver.decide(Lit::from_i32(1));
         let confl = solver.propagate().unwrap();
-        // println!("trail: {:?}", solver.trail);
-        // println!("level: {:?}", solver.level);
-        // println!("reason: {:?}", solver.reason);
-        // println!("conflict: {:?}", confl);
+        // debug!("trail: {:?}", solver.trail);
+        // debug!("level: {:?}", solver.level);
+        // debug!("reason: {:?}", solver.reason);
+        // debug!("conflict: {:?}", confl);
         let (lev, ass_clause) = solver.analyze(confl);
 
-        println!("lev: {lev}, clause: {ass_clause:?}");
-        println!("trail: {:?}", solver.trail);
-        println!("trail_lim: {:?}", solver.lim);
-        println!("decision_level: {:?}", solver.decision_level());
+        debug!("lev: {lev}, clause: {ass_clause:?}");
+        debug!("trail: {:?}", solver.trail);
+        debug!("trail_lim: {:?}", solver.lim);
+        debug!("decision_level: {:?}", solver.decision_level());
 
         assert_eq!(lev, 0);
         assert_eq!(ass_clause, make_clause(vec![-1]));
@@ -858,68 +587,35 @@ mod test {
         assert_eq!(solver.search(), true);
     }
 
-    /*
     #[test]
-    fn test_backjumping_2() {
+    fn simple_test_sat_2() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, -3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2, -3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, -3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, -3]), false), true);
 
-        let mut model = Model::new(vec![
-            vec![1],
-            vec![2],
-        ]);
+        assert_eq!(solver.propagate().is_some(), false);
+        solver.decide(Lit::from_i32(1));
+        solver.decide(Lit::from_i32(2));
 
-        model.decide(0, &1, Some(Rc::clone(&model.clauses[0])));
+        let out = solver.propagate();
+        assert_eq!(out.is_some(), true);
 
-        println!("initial decision stack:");
-        for l in model.decision_stack.iter() {
-            println!("{:?}", l);
-        }
+        let (lev, alits) = solver.analyze(out.unwrap());
+        solver.cancel_until(lev);
+        debug!("trail: {:?}", solver.trail);
+        debug!("decision level: {:?}", solver.decision_level());
+        debug!("reason: {:?}", solver.reason);
+        debug!("lim: {:?}", solver.lim);
+        debug!("level: {:?}", solver.level);
 
-        model.backjump(&2, &Rc::new(vec![2]));
+        assert_eq!(solver.decision_level(), 1)
 
-        println!("final decision stack:");
-        for l in model.decision_stack.iter() {
-            println!("{:?}", l);
-        }
-
-        assert_eq!(model.decision_stack, vec![
-            (0, 1, Some(Rc::clone(&model.clauses[0]))),
-            (0, -2, Some(Rc::new(vec![2]))),
-        ])
+        // assert_eq!(solver.search(), true);
     }
-
-    #[test]
-    fn test_backjumping() {
-
-        let mut model = Model::new(vec![
-            vec![-1, -2, -3],
-            vec![-1, -2, -4, 5],
-            vec![-1, -2, -4, -5],
-        ]);
-
-        model.decide(1, &1, None);
-        model.decide(2, &2, None);
-        model.decide(2, &-3, Some(Rc::clone(&model.clauses[0])));
-        model.decide(3, &4, None);
-        model.decide(3, &5, Some(Rc::clone(&model.clauses[1])));
-
-        println!("initial decision stack:");
-        for l in model.decision_stack.iter() {
-            println!("{:?}", l);
-        }
-
-        model.backjump(&4, &Rc::new(vec![-1, -2, -4]));
-
-        println!("final decision stack:");
-        for l in model.decision_stack.iter() {
-            println!("{:?}", l);
-        }
-
-        assert_eq!(model.decision_stack, vec![
-            (1, 1, None),
-            (2, 2, None),
-            (2, -3, Some(Rc::clone(&model.clauses[0]))),
-            (2, -4, Some(Rc::new(vec![-1, -2, -4]))),
-        ])
-    }
-    */
 }
+
