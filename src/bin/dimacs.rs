@@ -54,7 +54,9 @@ fn main() {
 
     let mut solver = Solver::new();
     for clause in clauses {
-        solver.add_clause(clause, false);
+        if !solver.add_clause(clause, false) {
+            println!("Unsat (found while inserting clauses)");
+        }
     }
 
     match solver.search() {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
 use log::{debug, info};
@@ -12,12 +12,12 @@ pub struct Solver {
     learnt  : Vec<Rc<Clause>>,
     trail   : Vec<Lit>,
     lim     : Vec<usize>,
-    model   : BTreeMap<Var, Sign>,
-    reason  : BTreeMap<Var, Rc<Clause>>,
-    level   : BTreeMap<Var, usize>,
+    model   : HashMap<Var, Sign>,
+    reason  : HashMap<Var, Rc<Clause>>,
+    level   : HashMap<Var, usize>,
     propq   : VecDeque<Lit>,
-    watches : BTreeMap<Lit, Vec<Rc<Clause>>>,
-    attach  : BTreeMap<Rc<Clause>, (Lit, Lit)>,
+    watches : HashMap<Lit, Vec<Rc<Clause>>>,
+    attach  : HashMap<Rc<Clause>, (Lit, Lit)>,
     // proof   : Vec<(ClauseRef, ClauseRef, Clause)>,
     stats   : SolverStats,
 }
@@ -29,12 +29,12 @@ impl Solver {
             learnt: Vec::new(),
             trail: Vec::new(),
             lim: Vec::new(),
-            reason: BTreeMap::new(),
-            level: BTreeMap::new(),
+            reason: HashMap::new(),
+            level: HashMap::new(),
             propq: VecDeque::new(),
-            watches: BTreeMap::new(),
-            attach: BTreeMap::new(),
-            model: BTreeMap::new(),
+            watches: HashMap::new(),
+            attach: HashMap::new(),
+            model: HashMap::new(),
             // proof: Vec::new(),
             stats: SolverStats { conflicts: 0 }
         }
@@ -69,22 +69,31 @@ impl Solver {
                 let l0 = lits[0];
                 let l1 = lits[1];
                 let clause = Rc::new(Clause::from_lits(lits));
-                for l in [l0, l1] {
-                    if let Some(clauses) = self.watches.get_mut(&l) {
-                        clauses.push(Rc::clone(&clause));
-                    } else {
-                        panic!("");
-                        // self.watches.insert(l, vec![Rc::clone(&clause)]);
-                    }
-                }
-                self.attach.insert(Rc::clone(&clause), (l0, l1));
-                if learnt {
-                    self.learnt.push(clause);
-                } else {
-                    self.clauses.push(clause);
-                }
+                self.add_nonunit_clause(clause, l0, l1, learnt);
                 true
             }
+        }
+    }
+
+    // preconditions: all the literals of the clauses are assigned, and the clause contains at least two literals
+    fn add_nonunit_clause(&mut self, clause: Rc<Clause>, l0: Lit, l1: Lit, learnt: bool) {
+        if let Some(_old) = self.attach.insert(Rc::clone(&clause), (l0, l1)) {
+            return; // duplicated clause
+        }
+
+        for l in [l0, l1] {
+            if let Some(clauses) = self.watches.get_mut(&l) {
+                clauses.push(Rc::clone(&clause));
+            } else {
+                panic!("");
+                // self.watches.insert(l, vec![Rc::clone(&clause)]);
+            }
+        }
+
+        if learnt {
+            self.learnt.push(clause);
+        } else {
+            self.clauses.push(clause);
         }
     }
 
@@ -97,7 +106,7 @@ impl Solver {
     }
 
     fn enqueue(&mut self, lit: Lit, reason: Option<Rc<Clause>>) -> bool {
-        debug!("enqueuing {lit:?}");
+        // debug!("enqueuing {lit:?}");
         match self.state(lit) {
             State::Unsat => false,
             State::Sat => true,
@@ -188,14 +197,13 @@ impl Solver {
 
     fn propagate(&mut self) -> Option<Rc<Clause>> {
         while let Some(l) = self.propq.pop_back() {
-            debug!("propagating {l:?}");
+            // debug!("propagating {l:?}");
             let mut tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
             self.watches.get_mut(&l.neg()).unwrap().clear();
 
-
             // for clause in tmp {
             while let Some(clause) = tmp.pop() {
-                debug!("watching {clause:?}, literals: {:?}", self.attach.get(&clause));
+                // debug!("watching {clause:?}, literals: {:?}", self.attach.get(&clause));
                 if !self.propagate_clause(Rc::clone(&clause), l) {
                     // propagation failed: conflict
                     self.propq.clear();
@@ -224,8 +232,6 @@ impl Solver {
     fn undo_one(&mut self) {
         let v = self.trail.last().unwrap().var();
 
-        debug!("undoing variable {:?}", v);
-
         // TODO: remove unwrap
         self.model.insert(v, Sign::Undef);
         self.reason.remove(&v); // .unwrap();
@@ -243,7 +249,6 @@ impl Solver {
     fn cancel(&mut self) {
         let c = self.trail.len() - self.lim.last().unwrap();
         for _ in [0..c] {
-            debug!("undoing one");
             self.undo_one();
         }
         // self.lim.pop().unwrap();
@@ -259,7 +264,7 @@ impl Solver {
     // post-conditions: the 1-UIP literal is the first literal of the output literals.
     fn analyze(&mut self, confl: Rc<Clause>) -> (usize, Vec<Lit>) {
 
-        let mut seen: BTreeMap<Var, bool> = self.model.iter()
+        let mut seen: HashMap<Var, bool> = self.model.iter()
             .map(|(&k, _)| (k, false))
             .collect();
 
@@ -272,14 +277,14 @@ impl Solver {
 
         loop {
             reason = self.calc_reason(&confl.unwrap(), lit);
-
+            debug!("reason: {:?}", reason);
             for l in reason.iter() {
                 if !seen.get(&l.var()).unwrap() {
                     seen.insert(l.var(), true);
                     if self.level(l.var()) == self.decision_level() {
                         counter += 1;
                     } else if self.level(l.var()) > 0 {
-                        out_learn.push(l.neg());
+                        out_learn.push(*l);
                         out_blevel = out_blevel.max(self.level(l.var()));
                     }
                 }
@@ -318,13 +323,27 @@ impl Solver {
     // learns an assertion clause.
     // preconditions: `lits[0]` is the assertion literal and `lits.len()` is not zero
     fn learn(&mut self, lits: Vec<Lit>) {
-        let l = lits[0];
-        let is_unit: bool = lits.len() > 1;
-        self.add_clause(lits, true); // if units, propagates, else pushes it to `self.learnt`
-                                     // also, watched literals are the first two of `lits`
+        // let l = lits[0];
+        // let is_not_unit: bool = lits.len() > 1;
+        // debug!("learning {:?} (assertion lit: {l:?})", lits);
+        // self.add_clause(lits, true); // if units, propagates, else pushes it to `self.learnt`
+        //                              // also, watched literals are the first two of `lits`
+        // debug!("learned clauses: {:?}", self.learnt);
+        // if is_not_unit {
+        //     let clauseref = self.learnt.last().unwrap();
+        //     self.enqueue(l, Some(Rc::clone(clauseref)));
+        // }
+
+        let is_unit: bool = lits.len() == 1;
+        debug!("literals: {lits:?}, is unit? {is_unit}");
         if is_unit {
-            let clauseref = self.learnt.last().unwrap();
-            self.enqueue(l, Some(Rc::clone(clauseref)));
+            self.add_clause(lits, true);
+        } else {
+            let l0 = lits[0];
+            let l1 = lits[1];
+            let clauseref = Rc::new(Clause::from_lits(lits));
+            self.add_nonunit_clause(Rc::clone(&clauseref), l0, l1, true);
+            self.enqueue(l0, Some(clauseref));
         }
     }
 
@@ -342,19 +361,27 @@ impl Solver {
     }
 
     pub fn search(&mut self) -> bool {
-        loop {
-            // info!("lits of -10, -18: {:?}", self.attach.get(&Rc::new(Clause::from_lits(vec![
-            //                                                                           Lit::from_i32(-10),
-            //                                                                           Lit::from_i32(-18),
-            // ]))));
-            info!("watched of -10: {:?}", self.watches.get(&Lit::from_i32(-10)));
+        // info!("initial watches of -4: {:?}", self.watches.get(&Lit::from_i32(-4)));
+        // info!("initial attach of -6, -4, 9: {:?}", self.attach.get(&Clause::from_lits(vec![
+        //                                                                              Lit::from_i32(-6),
+        //                                                                              Lit::from_i32(-4),
+        //                                                                              Lit::from_i32(9),
+        // ])));
 
-            debug!("prop quque: {:?}", self.propq);
+        // info!("watches: {:?}", self.watches);
+        // info!("atttach: {:?}", self.attach);
+
+        loop {
+            info!("trail before propagation: {:?}", self.trail);
+
+            debug!("prop queue: {:?}", self.propq);
             debug!("propagating...");
+
             if let Some(confl) = self.propagate() {
-                debug!("trail: {:?}", self.trail);
-                debug!("conflict: {confl:?}");
+                debug!("trail after propagation: {:?}", self.trail);
+                info!("conflict: {confl:?}");
                 debug!("decision level: {}", self.decision_level());
+                debug!("reasons: {:?}", self.reason);
 
                 if self.decision_level() == 0 {
                     return false;
@@ -369,13 +396,17 @@ impl Solver {
 
                 debug!("trail after learn: {:?}", self.trail);
                 debug!("decision level after learning: {}", self.decision_level());
+                debug!("level after learning: {:?}", self.level);
+                debug!("lim after learning: {:?}", self.lim);
             } else {
-                debug!("trail: {:?}", self.trail);
+                debug!("trail after propagation: {:?}", self.trail);
+                info!("no conflict");
+
                 if self.n_assigns() == self.n_vars() {
                     return true;
                 } else {
                     let newlit = self.choose();
-                    debug!("deciding {newlit:?}");
+                    info!("deciding {newlit:?}");
                     self.decide(newlit);
                 }
             }
@@ -403,7 +434,7 @@ mod test {
         let mut solver = Solver::new();
         solver.add_clause(vec![Lit::from_i32(1)], false);
         debug!("model: {:?}", solver.model);
-        assert_eq!(solver.model, BTreeMap::from([(Var::from_u32(1), Sign::Pos)]));
+        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Pos)]));
     }
 
     #[test]
@@ -412,7 +443,7 @@ mod test {
         assert_eq!(solver.add_clause(vec![Lit::from_i32(1), Lit::from_i32(2)], false), true);
         assert_eq!(solver.add_clause(vec![Lit::from_i32(-1)], false), true);
         assert_eq!(solver.propagate(), None);
-        assert_eq!(solver.model, BTreeMap::from([(Var::from_u32(1), Sign::Neg),
+        assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Neg),
                                                 (Var::from_u32(2), Sign::Pos)]));
     }
 
@@ -538,6 +569,7 @@ mod test {
     #[test]
     fn test_learn() {
         let mut solver = Solver::new();
+        solver.add_clause(make_clause(vec![1, 2]), false); // to create lits
         solver.learn(make_clause(vec![-1, -2]));
         assert_eq!(*solver.learnt.last().unwrap(), Rc::new(Clause::from_lits(make_clause(vec![-1, -2]))));
     }
@@ -616,6 +648,27 @@ mod test {
         assert_eq!(solver.decision_level(), 1)
 
         // assert_eq!(solver.search(), true);
+    }
+
+    #[test]
+    fn test_duplicate_clause() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
+        assert_eq!(solver.search(), true);
+    }
+
+    #[test]
+    fn test_same_clause() {
+        let mut solver = Solver::new();
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 3, 2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![2, 1, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![2, 3, 1]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![3, 1, 2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![3, 2, 1]), false), true);
+        assert_eq!(solver.search(), true);
     }
 }
 
