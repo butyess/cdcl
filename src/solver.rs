@@ -1,10 +1,18 @@
+// TODO:
+// - restart (DONE)
+// - proof or model
+// - forget
+// - cvsids
+
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
 use log::{debug, info};
 
-pub struct SolverStats {
-    conflicts: i32,
+#[derive(Debug)]
+struct SolverStats {
+    conflicts: u32,
+    restarts: u32,
 }
 
 pub struct Solver {
@@ -36,8 +44,12 @@ impl Solver {
             attach: HashMap::new(),
             model: HashMap::new(),
             // proof: Vec::new(),
-            stats: SolverStats { conflicts: 0 }
+            stats: SolverStats { conflicts: 0, restarts: 0 }
         }
+    }
+
+    pub fn print_stats(&self) {
+        println!("stats: {:?}", self.stats);
     }
 
     pub fn add_clause(&mut self, lits: Vec<Lit>, learnt: bool) -> bool {
@@ -106,7 +118,6 @@ impl Solver {
     }
 
     fn enqueue(&mut self, lit: Lit, reason: Option<Rc<Clause>>) -> bool {
-        // debug!("enqueuing {lit:?}");
         match self.state(lit) {
             State::Unsat => false,
             State::Sat => true,
@@ -197,13 +208,11 @@ impl Solver {
 
     fn propagate(&mut self) -> Option<Rc<Clause>> {
         while let Some(l) = self.propq.pop_back() {
-            // debug!("propagating {l:?}");
             let mut tmp: Vec<Rc<Clause>> = Vec::clone(self.watches.get(&l.neg()).unwrap());
             self.watches.get_mut(&l.neg()).unwrap().clear();
 
             // for clause in tmp {
             while let Some(clause) = tmp.pop() {
-                // debug!("watching {clause:?}, literals: {:?}", self.attach.get(&clause));
                 if !self.propagate_clause(Rc::clone(&clause), l) {
                     // propagation failed: conflict
                     self.propq.clear();
@@ -277,7 +286,6 @@ impl Solver {
 
         loop {
             reason = self.calc_reason(&confl.unwrap(), lit);
-            debug!("reason: {:?}", reason);
             for l in reason.iter() {
                 if !seen.get(&l.var()).unwrap() {
                     seen.insert(l.var(), true);
@@ -323,19 +331,7 @@ impl Solver {
     // learns an assertion clause.
     // preconditions: `lits[0]` is the assertion literal and `lits.len()` is not zero
     fn learn(&mut self, lits: Vec<Lit>) {
-        // let l = lits[0];
-        // let is_not_unit: bool = lits.len() > 1;
-        // debug!("learning {:?} (assertion lit: {l:?})", lits);
-        // self.add_clause(lits, true); // if units, propagates, else pushes it to `self.learnt`
-        //                              // also, watched literals are the first two of `lits`
-        // debug!("learned clauses: {:?}", self.learnt);
-        // if is_not_unit {
-        //     let clauseref = self.learnt.last().unwrap();
-        //     self.enqueue(l, Some(Rc::clone(clauseref)));
-        // }
-
         let is_unit: bool = lits.len() == 1;
-        debug!("literals: {lits:?}, is unit? {is_unit}");
         if is_unit {
             self.add_clause(lits, true);
         } else {
@@ -360,55 +356,41 @@ impl Solver {
         v.to_lit(Sign::Pos)
     }
 
-    pub fn search(&mut self) -> bool {
-        // info!("initial watches of -4: {:?}", self.watches.get(&Lit::from_i32(-4)));
-        // info!("initial attach of -6, -4, 9: {:?}", self.attach.get(&Clause::from_lits(vec![
-        //                                                                              Lit::from_i32(-6),
-        //                                                                              Lit::from_i32(-4),
-        //                                                                              Lit::from_i32(9),
-        // ])));
-
-        // info!("watches: {:?}", self.watches);
-        // info!("atttach: {:?}", self.attach);
-
+    fn search(&mut self, max_conflicts_base: u32) -> Option<bool> {
+        let max_conflicts = max_conflicts_base + self.stats.conflicts;
         loop {
-            info!("trail before propagation: {:?}", self.trail);
-
-            debug!("prop queue: {:?}", self.propq);
-            debug!("propagating...");
-
             if let Some(confl) = self.propagate() {
-                debug!("trail after propagation: {:?}", self.trail);
-                info!("conflict: {confl:?}");
-                debug!("decision level: {}", self.decision_level());
-                debug!("reasons: {:?}", self.reason);
-
+                self.stats.conflicts += 1;
                 if self.decision_level() == 0 {
-                    return false;
+                    return Some(false);
                 }
                 let (lev, assert_lits) = self.analyze(confl);
-
-                debug!("lev: {}, assert_lits: {:?}", lev, assert_lits);
-                debug!("trail after analyze: {:?}", self.trail);
-
                 self.cancel_until(lev);
                 self.learn(assert_lits);
-
-                debug!("trail after learn: {:?}", self.trail);
-                debug!("decision level after learning: {}", self.decision_level());
-                debug!("level after learning: {:?}", self.level);
-                debug!("lim after learning: {:?}", self.lim);
             } else {
-                debug!("trail after propagation: {:?}", self.trail);
-                info!("no conflict");
-
                 if self.n_assigns() == self.n_vars() {
-                    return true;
+                    return Some(true);
+                } else if self.stats.conflicts >= max_conflicts {
+                    return None;
                 } else {
                     let newlit = self.choose();
-                    info!("deciding {newlit:?}");
                     self.decide(newlit);
                 }
+            }
+        }
+    }
+
+    pub fn solve(&mut self) -> bool {
+        let mut max_conflicts: u32 = 100;
+        loop {
+            if let Some(out) = self.search(max_conflicts) {
+                return out;
+            } else {
+                debug!("restarting");
+                self.stats.restarts += 1;
+                max_conflicts = (max_conflicts as f32 * 1.5) as u32;
+                self.cancel_until(0);
+                // self.model.clear();
             }
         }
     }
@@ -524,6 +506,7 @@ mod test {
         solver.decide(Lit::from_i32(4));
         solver.cancel_until(0);
         assert_eq!(solver.decision_level(), 0);
+        assert_eq!(solver.trail.len(), 0);
     }
 
     #[test]

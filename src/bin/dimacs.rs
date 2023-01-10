@@ -7,11 +7,6 @@ use std::io::{self, BufReader, BufRead};
 use cdcl_lib::solver::Solver;
 use cdcl_lib::types::Lit;
 
-// use std::env;
-// use std::fs;
-// use either::{Left, Right};
-// use cdcl_lib::model::{Model, Clause, VarState};
-
 fn main() {
 
     env_logger::builder()
@@ -59,9 +54,11 @@ fn main() {
         }
     }
 
-    match solver.search() {
+    match solver.solve() {
         true => println!("Sat"),
         false => println!("Unsat"),
     }
+    
+    solver.print_stats();
 
 }
