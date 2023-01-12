@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
 use crate::varorder::{SignPolicy, VarOrder};
-use log::{debug, info};
+use log::{debug};
 
 #[derive(Debug)]
 pub struct SolverStats {
@@ -135,6 +135,7 @@ impl Solver {
     }
 
     fn enqueue(&mut self, lit: Lit, reason: Option<Rc<Clause>>) -> bool {
+        self.stats.propagations += 1;
         match self.state(lit) {
             State::Unsat => false,
             State::Sat => true,
@@ -361,7 +362,7 @@ impl Solver {
     }
 
     fn n_assigns(&self) -> usize {
-        self.model.iter().filter(|(&v, &s)| s != Sign::Undef).count()
+        self.model.iter().filter(|(_, &s)| s != Sign::Undef).count()
     }
 
     fn n_vars(&self) -> usize {
@@ -404,6 +405,7 @@ impl Solver {
                 } else {
                     let newlit = self.choose();
                     self.decide(newlit);
+                    self.stats.decisions += 1;
                 }
             }
         }

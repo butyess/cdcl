@@ -1,6 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::ops::Shr;
-// use priority_queue::PriorityQueue;
+use std::collections::HashMap;
 use crate::types::{Var, Lit, Sign};
 use fastrand;
 

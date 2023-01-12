@@ -1,16 +1,44 @@
-use std::io::{self, BufReader, BufRead};
+use std::io::{self, BufReader, BufRead, BufWriter, Write};
+use std::path::Path;
+use std::fs::File;
 use cdcl_lib::solver::{Solver, SolverStats};
 use cdcl_lib::types::Lit;
+use clap::Parser;
 
-fn main() {
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Hide model when satisfiable
+    #[arg(long, default_value_t = false)]
+    no_model: bool,
 
-    env_logger::builder()
-        .format_timestamp(None)
-        .format_level(false)
-        .format_module_path(false)
-        .init();
+    /// Hide proof when unsatisfiable
+    #[arg(long, default_value_t = false)]
+    no_proof: bool,
 
-    let reader: Box<dyn BufRead> = Box::new(BufReader::new(io::stdin()));
+    /// Read from file. If none, reads from stdin
+    #[arg(long, short)]
+    from: Option<String>,
+
+    /// Output to file. If none, outputs to stdout
+    #[arg(long, short)]
+    out: Option<String>
+}
+
+fn main() -> io::Result<()> {
+
+    // env_logger::builder()
+    //     .format_timestamp(None)
+    //     .format_level(false)
+    //     .format_module_path(false)
+    //     .init();
+
+    let cli = Args::parse();
+
+    let reader: Box<dyn BufRead> = match cli.from {
+            Some(fname) => Box::new(BufReader::new(File::open(fname)?)),
+            None => Box::new(BufReader::new(io::stdin())),
+    };
 
     let mut nclauses: i32 = -1;
     let mut _nvars: i32 = -1;
@@ -38,41 +66,50 @@ fn main() {
     }
 
     if clauses.len() != (nclauses as usize) {
-        println!("Error. found a different number of clauses than declared");
+        eprintln!("Error. found a different number of clauses than declared");
         std::process::exit(-1);
-    }
+    } else {
+        let mut writer: Box<dyn Write> = match cli.out {
+            Some(fname) => Box::new(BufWriter::new(File::create(&Path::new(&fname))?)),
+            None => Box::new(BufWriter::new(io::stdout())),
+        };
 
-    let mut solver = Solver::new();
-    for clause in clauses {
-        if !solver.add_clause(clause, false) {
-            println!("c Unsat (found while inserting clauses)");
-            println!("s UNSATISFIABLE");
-            println!("0");
-            std::process::exit(0);
-        }
-    }
-
-    let out = solver.solve();
-    
-    let stats: &SolverStats = solver.get_stats();
-    println!("c statistics: {} restarts, {} conflicts, {} decisions, {} propagations",
-             stats.restarts, stats.conflicts, stats.decisions, stats.propagations);
-
-    match out {
-        true => {
-            println!("s SATISFIABLE");
-            println!("v ");
-            for l in solver.get_model() {
-                print!("{} ", l);
-            }
-            println!("");
-        }
-        false => {
-            println!("s UNSATISFIABLE");
-            for line in solver.get_proof() {
-                println!("{}", line);
+        let mut solver = Solver::new();
+        for clause in clauses {
+            if !solver.add_clause(clause, false) {
+                writeln!(&mut writer, "c Unsat (found while inserting clauses)")?;
+                writeln!(&mut writer, "s UNSATISFIABLE")?;
+                writeln!(&mut writer, "0")?;
+                return Ok(());
             }
         }
-    }
 
+        let out = solver.solve();
+        
+        let stats: &SolverStats = solver.get_stats();
+        writeln!(&mut writer, "c statistics: {} restarts, {} conflicts, {} decisions, {} propagations",
+                 stats.restarts, stats.conflicts, stats.decisions, stats.propagations)?;
+
+        match out {
+            true => {
+                writeln!(&mut writer, "s SATISFIABLE")?;
+                if !cli.no_model {
+                    write!(&mut writer, "v ")?;
+                    for l in solver.get_model() {
+                        write!(&mut writer, "{} ", l)?;
+                    }
+                    writeln!(&mut writer, "")?;
+                }
+            }
+            false => {
+                writeln!(&mut writer, "s UNSATISFIABLE")?;
+                if !cli.no_proof {
+                    for line in solver.get_proof() {
+                        writeln!(&mut writer, "{}", line)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
