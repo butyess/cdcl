@@ -1,10 +1,10 @@
 // TODO:
 // - restart (DONE)
 // - proof or model (DONE)
-// - cvsids
+// - cvsids (DONE)
+// - command line (DONE)
 // - forget
 // - subsumption
-// - command line
 
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
