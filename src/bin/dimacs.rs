@@ -1,8 +1,3 @@
-// #![allow(dead_code)]
-// #![allow(unused_variables)]
-// #![allow(unused_mut)]
-// #![allow(unused_imports)]
-
 use std::io::{self, BufReader, BufRead};
 use cdcl_lib::solver::{Solver, SolverStats};
 use cdcl_lib::types::Lit;

@@ -9,6 +9,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use crate::types::*;
+use crate::varorder::{SignPolicy, VarOrder};
 use log::{debug, info};
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ pub struct Solver {
     watches : HashMap<Lit, Vec<Rc<Clause>>>,
     attach  : HashMap<Rc<Clause>, (Lit, Lit)>,
     proof   : Vec<String>,
+    order   : VarOrder,
     stats   : SolverStats,
 }
 
@@ -48,12 +50,21 @@ impl Solver {
             attach: HashMap::new(),
             model: HashMap::new(),
             proof: Vec::new(),
+            order: VarOrder::new(0.95),
             stats: SolverStats { conflicts: 0, restarts: 0, decisions: 0, propagations: 0 }
         }
     }
 
     pub fn get_stats(&self) -> &SolverStats {
         &self.stats
+    }
+
+    pub fn set_pick_policy(&mut self, policy: SignPolicy) {
+        self.order.set_policy(policy);
+    }
+
+    pub fn set_var_decay(&mut self, decay: f64) {
+        self.order.set_decay(decay);
     }
 
     pub fn add_clause(&mut self, lits: Vec<Lit>, learnt: bool) -> bool {
@@ -67,6 +78,8 @@ impl Solver {
                     self.watches.insert(*l, Vec::new());
                 }
             }
+
+            self.order.new_var(lit.var());
         }
 
         match lits.len() {
@@ -129,6 +142,7 @@ impl Solver {
                 self.model.insert(lit.var(), lit.sign());
                 self.level.insert(lit.var(), self.decision_level());
                 self.trail.push(lit);
+                self.order.selected(lit.var());
                 if let Some(r) = reason {
                     self.reason.insert(lit.var(), r);
                 }
@@ -224,8 +238,6 @@ impl Solver {
                     return Some(clause)
                 }
             }
-
-
         }
         None
     }
@@ -249,6 +261,7 @@ impl Solver {
         self.model.insert(v, Sign::Undef);
         self.reason.remove(&v); // .unwrap();
         self.level.remove(&v).unwrap();
+        self.order.undo(v);
 
         self.trail.pop().unwrap();
 
@@ -355,9 +368,10 @@ impl Solver {
         self.model.len()
     }
 
-    fn choose(&self) -> Lit {
-        let v = self.model.iter().find(|(&v, &s)| s == Sign::Undef).map(|(&v, &s)| v).unwrap();
-        v.to_lit(Sign::Neg)
+    fn choose(&mut self) -> Lit {
+        // let v = self.model.iter().find(|(&v, &s)| s == Sign::Undef).map(|(&v, &s)| v).unwrap();
+        // v.to_lit(Sign::Neg)
+        self.order.pick()
     }
 
     fn search(&mut self, max_conflicts_base: u32) -> Option<bool> {
@@ -370,6 +384,7 @@ impl Solver {
                     return Some(false);
                 }
                 let (lev, assert_lits) = self.analyze(confl);
+                assert_lits.iter().for_each(|l| self.order.bump(l.var()));
                 self.cancel_until(lev);
 
                 let mut learnt_str = String::new();
@@ -380,6 +395,7 @@ impl Solver {
                 self.proof.push(learnt_str);
 
                 self.learn(assert_lits);
+                self.order.decay();
             } else {
                 if self.n_assigns() == self.n_vars() {
                     return Some(true);
@@ -619,7 +635,7 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![1, -2]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
-        assert_eq!(solver.search(), false);
+        assert_eq!(solver.solve(), false);
     }
 
     #[test]
@@ -629,7 +645,7 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![-2, 3]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![-3, 4]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![-4, 1]), false), true);
-        assert_eq!(solver.search(), true);
+        assert_eq!(solver.solve(), true);
     }
 
     #[test]
@@ -660,7 +676,7 @@ mod test {
 
         assert_eq!(solver.decision_level(), 1)
 
-        // assert_eq!(solver.search(), true);
+        // assert_eq!(solver.solve(), true);
     }
 
     #[test]
@@ -669,7 +685,7 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
-        assert_eq!(solver.search(), true);
+        assert_eq!(solver.solve(), true);
     }
 
     #[test]
@@ -681,7 +697,7 @@ mod test {
         assert_eq!(solver.add_clause(make_clause(vec![2, 3, 1]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![3, 1, 2]), false), true);
         assert_eq!(solver.add_clause(make_clause(vec![3, 2, 1]), false), true);
-        assert_eq!(solver.search(), true);
+        assert_eq!(solver.solve(), true);
     }
 }
 
