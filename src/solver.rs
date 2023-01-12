@@ -1,8 +1,8 @@
 // TODO:
 // - restart (DONE)
 // - proof or model (DONE)
-// - forget
 // - cvsids
+// - forget
 // - subsumption
 // - command line
 
@@ -403,17 +403,10 @@ impl Solver {
                 self.stats.restarts += 1;
                 max_conflicts = (max_conflicts as f32 * 1.5) as u32;
                 self.cancel_until(0);
-                self.proof.clear();
-                // self.model.clear();
             }
         };
 
         out
-
-        // match out {
-        //     true => // make model,
-        //     false =>
-        // }
     }
 
     pub fn get_proof(&self) -> &Vec<String> {
