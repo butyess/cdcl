@@ -1,8 +1,10 @@
 // TODO:
 // - restart (DONE)
-// - proof or model
+// - proof or model (DONE)
 // - forget
 // - cvsids
+// - subsumption
+// - command line
 
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -10,9 +12,11 @@ use crate::types::*;
 use log::{debug, info};
 
 #[derive(Debug)]
-struct SolverStats {
-    conflicts: u32,
-    restarts: u32,
+pub struct SolverStats {
+    pub conflicts: u32,
+    pub restarts: u32,
+    pub decisions: u32,
+    pub propagations: u32,
 }
 
 pub struct Solver {
@@ -26,7 +30,7 @@ pub struct Solver {
     propq   : VecDeque<Lit>,
     watches : HashMap<Lit, Vec<Rc<Clause>>>,
     attach  : HashMap<Rc<Clause>, (Lit, Lit)>,
-    // proof   : Vec<(ClauseRef, ClauseRef, Clause)>,
+    proof   : Vec<String>,
     stats   : SolverStats,
 }
 
@@ -43,13 +47,13 @@ impl Solver {
             watches: HashMap::new(),
             attach: HashMap::new(),
             model: HashMap::new(),
-            // proof: Vec::new(),
-            stats: SolverStats { conflicts: 0, restarts: 0 }
+            proof: Vec::new(),
+            stats: SolverStats { conflicts: 0, restarts: 0, decisions: 0, propagations: 0 }
         }
     }
 
-    pub fn print_stats(&self) {
-        println!("stats: {:?}", self.stats);
+    pub fn get_stats(&self) -> &SolverStats {
+        &self.stats
     }
 
     pub fn add_clause(&mut self, lits: Vec<Lit>, learnt: bool) -> bool {
@@ -353,7 +357,7 @@ impl Solver {
 
     fn choose(&self) -> Lit {
         let v = self.model.iter().find(|(&v, &s)| s == Sign::Undef).map(|(&v, &s)| v).unwrap();
-        v.to_lit(Sign::Pos)
+        v.to_lit(Sign::Neg)
     }
 
     fn search(&mut self, max_conflicts_base: u32) -> Option<bool> {
@@ -362,10 +366,19 @@ impl Solver {
             if let Some(confl) = self.propagate() {
                 self.stats.conflicts += 1;
                 if self.decision_level() == 0 {
+                    self.proof.push(String::from("0"));
                     return Some(false);
                 }
                 let (lev, assert_lits) = self.analyze(confl);
                 self.cancel_until(lev);
+
+                let mut learnt_str = String::new();
+                for l in assert_lits.iter() {
+                    learnt_str.push_str(&format!("{} ", l.to_i32()));
+                }
+                learnt_str.push_str("0");
+                self.proof.push(learnt_str);
+
                 self.learn(assert_lits);
             } else {
                 if self.n_assigns() == self.n_vars() {
@@ -382,17 +395,41 @@ impl Solver {
 
     pub fn solve(&mut self) -> bool {
         let mut max_conflicts: u32 = 100;
-        loop {
+        let out = loop {
             if let Some(out) = self.search(max_conflicts) {
-                return out;
+                break out;
             } else {
                 debug!("restarting");
                 self.stats.restarts += 1;
                 max_conflicts = (max_conflicts as f32 * 1.5) as u32;
                 self.cancel_until(0);
+                self.proof.clear();
                 // self.model.clear();
             }
+        };
+
+        out
+
+        // match out {
+        //     true => // make model,
+        //     false =>
+        // }
+    }
+
+    pub fn get_proof(&self) -> &Vec<String> {
+        &self.proof
+    }
+
+    pub fn get_model(&self) -> Vec<i32> {
+        let mut model: Vec<i32> = Vec::new();
+        for i in 1..(self.model.keys().max_by(|x, y| x.cmp(y)).map(Var::to_u32).unwrap_or_default()+1) {
+            match self.model.get(&Var::from_u32(i)) {
+                Some(Sign::Pos) => model.push(i as i32),
+                Some(Sign::Neg) => model.push(-(i as i32)),
+                _ => model.push(-(i as i32)),
+            }
         }
+        model
     }
 
 }

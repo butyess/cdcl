@@ -4,7 +4,7 @@
 // #![allow(unused_imports)]
 
 use std::io::{self, BufReader, BufRead};
-use cdcl_lib::solver::Solver;
+use cdcl_lib::solver::{Solver, SolverStats};
 use cdcl_lib::types::Lit;
 
 fn main() {
@@ -50,15 +50,34 @@ fn main() {
     let mut solver = Solver::new();
     for clause in clauses {
         if !solver.add_clause(clause, false) {
-            println!("Unsat (found while inserting clauses)");
+            println!("c Unsat (found while inserting clauses)");
+            println!("s UNSATISFIABLE");
+            println!("0");
+            std::process::exit(0);
         }
     }
 
-    match solver.solve() {
-        true => println!("Sat"),
-        false => println!("Unsat"),
-    }
+    let out = solver.solve();
     
-    solver.print_stats();
+    let stats: &SolverStats = solver.get_stats();
+    println!("c statistics: {} restarts, {} conflicts, {} decisions, {} propagations",
+             stats.restarts, stats.conflicts, stats.decisions, stats.propagations);
+
+    match out {
+        true => {
+            println!("s SATISFIABLE");
+            println!("v ");
+            for l in solver.get_model() {
+                print!("{} ", l);
+            }
+            println!("");
+        }
+        false => {
+            println!("s UNSATISFIABLE");
+            for line in solver.get_proof() {
+                println!("{}", line);
+            }
+        }
+    }
 
 }

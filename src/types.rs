@@ -47,6 +47,10 @@ impl Lit {
     pub fn neg(&self) -> Lit {
         Lit(-self.0)
     }
+    
+    pub fn to_i32(&self) -> i32 {
+        self.0
+    }
 }
 
 #[derive(Debug)]
@@ -67,6 +71,10 @@ impl Var {
             _ => panic!("cannot build from undef sign")
         }
     }
+
+    pub fn to_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 // clause
@@ -80,12 +88,12 @@ pub struct Clause {
 }
 
 impl Clause {
-	pub fn from_lits(lits: Vec<Lit>) -> Clause {
+    pub fn from_lits(lits: Vec<Lit>) -> Clause {
         match lits.len() {
             0 => panic!("cannot create empty clause"),
             _ => Clause { lits: lits.into_boxed_slice() }
         }
-	}
+    }
 
     pub fn lits(&self) -> &[Lit] {
         &self.lits
