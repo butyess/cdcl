@@ -1,6 +1,8 @@
 use std::io::{self, BufReader, BufRead, BufWriter, Write};
 use std::path::Path;
 use std::fs::File;
+use std::time::Duration;
+use cpu_time::ProcessTime;
 use cdcl_lib::solver::{Solver, SolverStats};
 use cdcl_lib::types::Lit;
 use clap::Parser;
@@ -74,6 +76,9 @@ fn main() -> io::Result<()> {
             None => Box::new(BufWriter::new(io::stdout())),
         };
 
+        let start = ProcessTime::try_now().expect("Getting process time failed");
+
+
         let mut solver = Solver::new();
         for clause in clauses {
             if !solver.add_clause(clause, false) {
@@ -85,10 +90,12 @@ fn main() -> io::Result<()> {
         }
 
         let out = solver.solve();
+        let cpu_time: Duration = start.try_elapsed().expect("Getting process time failed");
         
         let stats: &SolverStats = solver.get_stats();
         writeln!(&mut writer, "c statistics: {} restarts, {} conflicts, {} decisions, {} propagations",
                  stats.restarts, stats.conflicts, stats.decisions, stats.propagations)?;
+        writeln!(&mut writer, "c solving duration (CPU Time): {} s", cpu_time.as_secs_f64())?;
 
         match out {
             true => {

@@ -1,5 +1,10 @@
 # Benchmarks
 
+## "Flat" Graph Colouring, 3 colourable, from SATLIB
+
+All instances are satisfiable.
+
+
 ## Uniform random from SATLIB:
 
 | File name       | Arch   | Rust CDCL |

@@ -10,6 +10,7 @@ env_logger = "0.10.0"
 log = "0.4.17"
 fastrand = "1.8.0"
 clap = { version = "4.0.32", features = ["derive"] }
+cpu-time = "1.0.0"
 
 [lib]
 name = "cdcl_lib"
