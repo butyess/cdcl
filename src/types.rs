@@ -96,5 +96,9 @@ impl Clause {
     pub fn lits(&self) -> &[Lit] {
         &self.lits
     }
+
+    pub fn is_unit(&self) -> bool {
+        self.lits.len() == 1
+    }
 }
 

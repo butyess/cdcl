@@ -3,7 +3,7 @@ use std::path::Path;
 use std::fs::File;
 use std::time::Duration;
 use cpu_time::ProcessTime;
-use cdcl_lib::solver::{Solver, SolverStats};
+use cdcl_lib::solver::{Solver, SolverStats, SolverOptions};
 use cdcl_lib::types::Lit;
 use clap::Parser;
 
@@ -24,17 +24,14 @@ struct Args {
 
     /// Output to file. If none, outputs to stdout
     #[arg(long, short)]
-    out: Option<String>
+    out: Option<String>,
+
+    /// Display information to stderr during solving
+    #[arg(long, short, default_value_t = false)]
+    debug: bool,
 }
 
 fn main() -> io::Result<()> {
-
-    // env_logger::builder()
-    //     .format_timestamp(None)
-    //     .format_level(false)
-    //     .format_module_path(false)
-    //     .init();
-
     let cli = Args::parse();
 
     let reader: Box<dyn BufRead> = match cli.from {
@@ -78,8 +75,14 @@ fn main() -> io::Result<()> {
 
         let start = ProcessTime::try_now().expect("Getting process time failed");
 
+        let mut options = SolverOptions::default();
+        if cli.no_proof {
+            options.save_proof = false;
+        }
 
-        let mut solver = Solver::new();
+        options.debug = cli.debug;
+
+        let mut solver = Solver::new(options);
         for clause in clauses {
             if !solver.add_clause(clause, false) {
                 writeln!(&mut writer, "c Unsat (found while inserting clauses)")?;

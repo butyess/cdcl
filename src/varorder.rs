@@ -124,7 +124,6 @@ impl VarOrder {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
     use super::*;
 
     #[test]
