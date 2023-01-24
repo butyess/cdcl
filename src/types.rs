@@ -87,10 +87,11 @@ pub struct Clause {
 
 impl Clause {
     pub fn from_lits(lits: Vec<Lit>) -> Clause {
-        match lits.len() {
-            0 => panic!("cannot create empty clause"),
-            _ => Clause { lits: lits.into_boxed_slice() }
-        }
+        Clause { lits: lits.into_boxed_slice() }
+        // match lits.len() {
+        //     0 => panic!("cannot create empty clause"),
+        //     _ => Clause { lits: lits.into_boxed_slice() }
+        // }
     }
 
     pub fn lits(&self) -> &[Lit] {

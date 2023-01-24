@@ -5,6 +5,9 @@
 // - command line (DONE)
 // - forget (DONE)
 // - subsumption
+// - implement forget in another module (WILL NOT)
+// - remove the field `learnt` in add_clause (DONE)
+// - remove todo list
 
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::rc::Rc;
@@ -93,7 +96,7 @@ impl Solver {
         self.order.set_decay(decay);
     }
 
-    pub fn add_clause(&mut self, lits: Vec<Lit>, learnt: bool) -> bool {
+    pub fn add_clause(&mut self, lits: Vec<Lit>) -> bool {
         for lit in lits.iter() {
             if !self.model.contains_key(&lit.var()) {
                 self.model.insert(lit.var(), Sign::Undef);
@@ -108,52 +111,48 @@ impl Solver {
             self.order.new_var(lit.var());
         }
 
-        match lits.len() {
+        let clause: Rc<Clause> = Rc::new(Clause::from_lits(lits));
+        match clause.lits().len() {
             0 => return false,
             1 => {
-                let lit = lits[0];
-                let clause = Rc::new(Clause::from_lits(lits));
-                if learnt {
-                    self.learnt.insert(Rc::clone(&clause));
-                    self.cla_activity.insert(Rc::clone(&clause), 0f64);
-                    self.bump_clause(Rc::clone(&clause));
-                } else {
-                    self.clauses.push(Rc::clone(&clause));
-                }
+                let lit = clause.lits()[0];
+                self.clauses.push(Rc::clone(&clause));
                 self.enqueue(lit, Some(clause))
             },
             _ => {
-                let l0 = lits[0];
-                let l1 = lits[1];
-                let clause = Rc::new(Clause::from_lits(lits));
-                self.add_nonunit_clause(clause, l0, l1, learnt);
+                let (l0, l1) = (clause.lits()[0], clause.lits()[1]);
+                if !self.attach.contains_key(&clause) {
+                    self.attach.insert(Rc::clone(&clause), (l0, l1));
+                    for l in [l0, l1] {
+                        self.watches.get_mut(&l)
+                            .expect("No watches for literal when adding clause")
+                            .push(Rc::clone(&clause));
+                    }
+                    self.clauses.push(Rc::clone(&clause));
+                }
                 true
             }
         }
     }
 
-    // preconditions: all the literals of the clauses are assigned, and the clause contains at least two literals
-    fn add_nonunit_clause(&mut self, clause: Rc<Clause>, l0: Lit, l1: Lit, learnt: bool) {
-        if let Some(_old) = self.attach.insert(Rc::clone(&clause), (l0, l1)) {
-            return; // duplicated clause
-        }
-
-        for l in [l0, l1] {
-            if let Some(clauses) = self.watches.get_mut(&l) {
-                clauses.push(Rc::clone(&clause));
-            } else {
-                panic!("");
-                // self.watches.insert(l, vec![Rc::clone(&clause)]);
+    // pre-conditions: lits.len() > 0
+    pub fn learn_clause(&mut self, lits: Vec<Lit>) -> Rc<Clause> {
+        let clause: Rc<Clause> = Rc::new(Clause::from_lits(lits));
+        if clause.lits().len() > 1 {
+            let (l0, l1) = (clause.lits()[0], clause.lits()[1]);
+            if !self.attach.contains_key(&clause) {
+                self.attach.insert(Rc::clone(&clause), (l0, l1));
+                for l in [l0, l1] {
+                    self.watches.get_mut(&l)
+                        .expect("No watches for literal when learning clause")
+                        .push(Rc::clone(&clause));
+                }
             }
         }
-
-        if learnt {
-            self.cla_activity.insert(Rc::clone(&clause), 0f64);
-            self.bump_clause(Rc::clone(&clause));
-            self.learnt.insert(clause);
-        } else {
-            self.clauses.push(clause);
-        }
+        self.cla_activity.insert(Rc::clone(&clause), 0f64);
+        self.bump_clause(Rc::clone(&clause));
+        self.learnt.insert(Rc::clone(&clause));
+        clause
     }
 
     fn state(&self, lit: Lit) -> State {
@@ -381,16 +380,19 @@ impl Solver {
     // learns an assertion clause.
     // preconditions: `lits[0]` is the assertion literal and `lits.len()` is not zero
     fn learn(&mut self, lits: Vec<Lit>) {
-        let is_unit: bool = lits.len() == 1;
-        if is_unit {
-            self.add_clause(lits, true);
-        } else {
-            let l0 = lits[0];
-            let l1 = lits[1];
-            let clauseref = Rc::new(Clause::from_lits(lits));
-            self.add_nonunit_clause(Rc::clone(&clauseref), l0, l1, true);
-            self.enqueue(l0, Some(clauseref));
-        }
+        let clause: Rc<Clause> = self.learn_clause(lits);
+        assert_eq!(true, self.enqueue(clause.lits()[0], Some(clause))); // always true on a learned clause
+
+        // let is_unit: bool = lits.len() == 1;
+        // if is_unit {
+        //     self.learn_clause(lits);
+        // } else {
+        //     let l0 = lits[0];
+        //     let l1 = lits[1];
+        //     let clauseref = Rc::new(Clause::from_lits(lits));
+        //     self.add_nonunit_clause(Rc::clone(&clauseref), l0, l1, true);
+        //     self.enqueue(l0, Some(clauseref));
+        // }
     }
 
     fn n_assigns(&self) -> usize {
@@ -585,13 +587,13 @@ mod test {
     #[test]
     fn test_add_empty_clause() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(vec![], false), false)
+        assert_eq!(solver.add_clause(vec![]), false);
     }
 
     #[test]
     fn test_add_singleton_clause() {
         let mut solver = Solver::new(SolverOptions::default());
-        solver.add_clause(vec![Lit::from_i32(1)], false);
+        solver.add_clause(vec![Lit::from_i32(1)]);
         println!("model: {:?}", solver.model);
         assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Pos)]));
     }
@@ -599,8 +601,8 @@ mod test {
     #[test]
     fn test_propagation() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(vec![Lit::from_i32(1), Lit::from_i32(2)], false), true);
-        assert_eq!(solver.add_clause(vec![Lit::from_i32(-1)], false), true);
+        assert_eq!(solver.add_clause(vec![Lit::from_i32(1), Lit::from_i32(2)]), true);
+        assert_eq!(solver.add_clause(vec![Lit::from_i32(-1)]), true);
         assert_eq!(solver.propagate(), None);
         assert_eq!(solver.model, HashMap::from([(Var::from_u32(1), Sign::Neg),
                                                 (Var::from_u32(2), Sign::Pos)]));
@@ -609,25 +611,25 @@ mod test {
     #[test]
     fn test_conflict_enqueue() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1]), false), false);
+        assert_eq!(solver.add_clause(make_clause(vec![1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1])), false);
     }
 
     #[test]
     fn test_conflict_propagation() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-2, 1]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-2, 1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1])), true);
         assert_eq!(solver.propagate().is_some(), true);
     }
 
     #[test]
     fn test_analyze() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-2, 1]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-2, 1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1])), true);
         let conflict = solver.propagate().unwrap();
         let (lev, assert_clause) = solver.analyze(conflict);
         assert_eq!(lev, 0);
@@ -644,10 +646,10 @@ mod test {
     #[test]
     fn test_propagate_2() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2])), true);
         solver.decide(Lit::from_i32(1));
         println!("pqueue: {:?}", solver.propq);
         let out = solver.propagate();
@@ -658,10 +660,10 @@ mod test {
     #[test]
     fn test_analyze_2() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2])), true);
         solver.decide(Lit::from_i32(1));
         let confl = solver.propagate().unwrap();
         println!("trail: {:?}", solver.trail);
@@ -678,7 +680,7 @@ mod test {
     #[test]
     fn test_cancel() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5])), true);
         solver.decide(Lit::from_i32(1));
         solver.decide(Lit::from_i32(2));
         solver.decide(Lit::from_i32(3));
@@ -691,7 +693,7 @@ mod test {
     #[test]
     fn test_cancel_2() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5])), true);
         solver.decide(Lit::from_i32(1));
         solver.decide(Lit::from_i32(2));
         solver.decide(Lit::from_i32(3));
@@ -704,7 +706,7 @@ mod test {
     #[test]
     fn test_cancel_3() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5])), true);
         solver.decide(Lit::from_i32(1));
         solver.decide(Lit::from_i32(2));
         solver.decide(Lit::from_i32(3));
@@ -718,7 +720,7 @@ mod test {
     #[test]
     fn test_cancel_4() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3, 4, 5])), true);
         solver.decide(Lit::from_i32(1));
         solver.decide(Lit::from_i32(2));
         solver.decide(Lit::from_i32(3));
@@ -731,7 +733,7 @@ mod test {
     #[test]
     fn test_learn() {
         let mut solver = Solver::new(SolverOptions::default());
-        solver.add_clause(make_clause(vec![1, 2]), false); // to create lits
+        solver.add_clause(make_clause(vec![1, 2])); // to create lits
         solver.learn(make_clause(vec![-1, -2]));
         let solved_clauses: Vec<Rc<Clause>> = solver.learnt.iter().map(Rc::clone).collect();
         assert_eq!(solved_clauses.len(), 1);
@@ -739,12 +741,26 @@ mod test {
     }
 
     #[test]
+    fn test_learn_unit() {
+        let mut solver = Solver::new(SolverOptions::default());
+        solver.add_clause(make_clause(vec![1, 2])); // to create lits
+        solver.learn(make_clause(vec![-1]));
+        let solved_clauses: Vec<Rc<Clause>> = solver.learnt.iter().map(Rc::clone).collect();
+        assert_eq!(solved_clauses.len(), 1);
+        assert_eq!(solved_clauses[0], Rc::new(Clause::from_lits(make_clause(vec![-1]))));
+        assert_eq!(true, solver.propagate().is_none());
+        assert_eq!(Sign::Neg, solver.model[&Var::from_u32(1)]);
+        assert_eq!(Sign::Pos, solver.model[&Var::from_u32(2)]);
+        assert_eq!(2, solver.model.len());
+    }
+
+    #[test]
     fn test_undo_level() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2])), true);
         solver.decide(Lit::from_i32(1));
         let confl = solver.propagate().unwrap();
         // println!("trail: {:?}", solver.trail);
@@ -766,10 +782,10 @@ mod test {
     #[test]
     fn simple_test_unsat() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2])), true);
         println!("{:?}", solver.cla_activity);
         assert_eq!(solver.solve(), false);
     }
@@ -777,23 +793,25 @@ mod test {
     #[test]
     fn simple_test_sat() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-3, 4]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-4, 1]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-3, 4])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-4, 1])), true);
+        println!("clauses: {:?}", solver.clauses);
+        println!("attach: {:?}", solver.attach);
         assert_eq!(solver.solve(), true);
     }
 
     #[test]
     fn simple_test_sat_2() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, -3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, -2, -3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, -3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, -3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, -3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, -2, -3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, 2, -3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![-1, -2, -3])), true);
 
         assert_eq!(solver.propagate().is_some(), false);
         solver.decide(Lit::from_i32(1));
@@ -818,22 +836,23 @@ mod test {
     #[test]
     fn test_duplicate_clause() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3])), true);
         assert_eq!(solver.solve(), true);
     }
 
     #[test]
     fn test_same_clause() {
         let mut solver = Solver::new(SolverOptions::default());
-        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![1, 3, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![2, 1, 3]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![2, 3, 1]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![3, 1, 2]), false), true);
-        assert_eq!(solver.add_clause(make_clause(vec![3, 2, 1]), false), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 2, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![1, 3, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![2, 1, 3])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![2, 3, 1])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![3, 1, 2])), true);
+        assert_eq!(solver.add_clause(make_clause(vec![3, 2, 1])), true);
         assert_eq!(solver.solve(), true);
     }
+
 }
 

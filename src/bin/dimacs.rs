@@ -84,7 +84,7 @@ fn main() -> io::Result<()> {
 
         let mut solver = Solver::new(options);
         for clause in clauses {
-            if !solver.add_clause(clause, false) {
+            if !solver.add_clause(clause) {
                 writeln!(&mut writer, "c Unsat (found while inserting clauses)")?;
                 writeln!(&mut writer, "s UNSATISFIABLE")?;
                 writeln!(&mut writer, "0")?;

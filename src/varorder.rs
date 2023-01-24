@@ -96,9 +96,18 @@ impl VarOrder {
             self.sort_vars();
         }
 
-        let var = *self.vars.iter()
-            .find(|v| !self.chosen.get(v).unwrap())
-            .unwrap();
+        let var = if self.counter % 100 == 0 {
+            loop {
+                let i = fastrand::usize(..self.vars.len());
+                if !self.chosen[&self.vars[i]] {
+                    break self.vars[i];
+                }
+            }
+        } else {
+            *self.vars.iter()
+                .find(|v| !self.chosen.get(v).unwrap())
+                .unwrap()
+        };
 
         self.chosen.insert(var, true);
 
