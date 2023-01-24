@@ -287,9 +287,8 @@ impl Solver {
     fn undo_one(&mut self) {
         let v = self.trail.last().unwrap().var();
 
-        // TODO: remove unwrap
         self.model.insert(v, Sign::Undef);
-        self.reason.remove(&v); // .unwrap();
+        self.reason.remove(&v);
         self.level.remove(&v).unwrap();
         self.order.undo(v);
 
@@ -307,7 +306,6 @@ impl Solver {
         for _ in [0..c] {
             self.undo_one();
         }
-        // self.lim.pop().unwrap();
     }
 
     fn cancel_until(&mut self, lev: usize) {
@@ -382,17 +380,6 @@ impl Solver {
     fn learn(&mut self, lits: Vec<Lit>) {
         let clause: Rc<Clause> = self.learn_clause(lits);
         assert_eq!(true, self.enqueue(clause.lits()[0], Some(clause))); // always true on a learned clause
-
-        // let is_unit: bool = lits.len() == 1;
-        // if is_unit {
-        //     self.learn_clause(lits);
-        // } else {
-        //     let l0 = lits[0];
-        //     let l1 = lits[1];
-        //     let clauseref = Rc::new(Clause::from_lits(lits));
-        //     self.add_nonunit_clause(Rc::clone(&clauseref), l0, l1, true);
-        //     self.enqueue(l0, Some(clauseref));
-        // }
     }
 
     fn n_assigns(&self) -> usize {
@@ -404,8 +391,6 @@ impl Solver {
     }
 
     fn choose(&mut self) -> Lit {
-        // let v = self.model.iter().find(|(&v, &s)| s == Sign::Undef).map(|(&v, &s)| v).unwrap();
-        // v.to_lit(Sign::Neg)
         self.order.pick()
     }
 
@@ -829,8 +814,6 @@ mod test {
         println!("level: {:?}", solver.level);
 
         assert_eq!(solver.decision_level(), 1)
-
-        // assert_eq!(solver.solve(), true);
     }
 
     #[test]
