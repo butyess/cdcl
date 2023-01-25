@@ -2,12 +2,10 @@ use std::io::{self, BufReader, BufRead, BufWriter, Write};
 use std::path::Path;
 use std::fs::File;
 use std::time::Duration;
-use std::process;
 use cpu_time::ProcessTime;
 use cdcl_lib::solver::{Solver, SolverStats, SolverOptions};
 use cdcl_lib::types::Lit;
 use clap::Parser;
-use procfs::process::Process;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -101,15 +99,6 @@ fn main() -> io::Result<()> {
         writeln!(&mut writer, "c statistics: {} restarts, {} conflicts, {} decisions, {} propagations",
                  stats.restarts, stats.conflicts, stats.decisions, stats.propagations)?;
         writeln!(&mut writer, "c solving duration (CPU Time): {} s", cpu_time.as_secs_f64())?;
-
-        let vmpeak: Option<u64> = Process::new(process::id() as i32)
-            .and_then(|p| p.status())
-            .ok()
-            .and_then(|s| s.vmpeak);
-        match vmpeak {
-            Some(val) => writeln!(&mut writer, "c peak memory usage: {:.2} MB", (val as f32) / 1024_f32)?,
-            None => {}
-        }
 
         match out {
             true => {
