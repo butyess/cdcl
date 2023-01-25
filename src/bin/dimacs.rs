@@ -31,6 +31,10 @@ struct Args {
     /// Display information to stderr during solving
     #[arg(long, short, default_value_t = false)]
     debug: bool,
+
+    /// Wether to use the forget euristic or not
+    #[arg(long, default_value_t = false)]
+    disable_forget: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -78,9 +82,8 @@ fn main() -> io::Result<()> {
         let start = ProcessTime::try_now().expect("Getting process time failed");
 
         let mut options = SolverOptions::default();
-        if cli.no_proof {
-            options.save_proof = false;
-        }
+        options.save_proof = !cli.no_proof;
+        options.use_forget = !cli.disable_forget;
 
         options.debug = cli.debug;
 

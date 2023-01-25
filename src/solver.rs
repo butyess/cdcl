@@ -25,6 +25,7 @@ pub struct SolverOptions {
     pub init_max_conflicts: usize,
     pub max_conflicts_multiplier: f32,
     pub max_learnts_multiplier: f32,
+    pub use_forget: bool,
     pub save_proof: bool,
     pub debug: bool,
 }
@@ -35,6 +36,7 @@ impl Default for SolverOptions {
             init_max_conflicts: 100,
             max_conflicts_multiplier: 1.5f32,
             max_learnts_multiplier: 1.1f32,
+            use_forget: true,
             save_proof: true,
             debug: false,
         }
@@ -506,7 +508,9 @@ impl Solver {
                     if self.options.debug {
                         eprintln!("forgetting");
                     }
-                    self.forget();
+                    if self.options.use_forget {
+                        self.forget();
+                    }
                 }
 
                 if self.n_assigns() == self.n_vars() {
