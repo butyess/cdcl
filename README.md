@@ -1,63 +1,29 @@
-# Benchmarks
+# CDCL SAT Solver
 
-## "Flat" Graph Colouring, 3 colourable, from SATLIB
+## Compile
 
-All instances are satisfiable.
+Rust's package manager `cargo` is required.
 
+To print stats about the solver process, the solver will read into `/proc/[pid]/stats`,
+hence only the linux operating system is supported.
 
-## Uniform random from SATLIB:
+1. Compile with `cargo build --bin dimacs --release`
+2. Executable will be in `target/release/dimacs`
 
-| File name       | Arch   | Rust CDCL |
-|-----------------|--------|-----------|
-|   uuf125-01.cnf | Air M1 |    25.422 |
-|  uuf125-010.cnf | Air M1 |  1:22.480 |
-| uuf125-0100.cnf | Air M1 |    55.452 |
-|  uuf125-011.cnf | Air M1 |  2:12.120 |
-|  uuf125-012.cnf | Air M1 |  2:07.400 |
-|  uuf125-013.cnf | Air M1 |    42.785 |
-|  uuf125-014.cnf | Air M1 |    49.092 |
-|  uuf125-015.cnf | Air M1 |  2:21.440 |
-|  uuf125-016.cnf | Air M1 |  1:18.560 |
-|  uuf125-017.cnf | Air M1 |    12.366 |
-|  uuf125-018.cnf | Air M1 |    59.444 |
-|  uuf125-019.cnf | Air M1 |  1:05.600 |
-|   uuf125-02.cnf | Air M1 |  4:42.180 |
-|  uuf125-020.cnf | Air M1 |    11.879 |
-|  uuf125-021.cnf | Air M1 |    20.802 |
+## Usage
 
-## Pigeonhole problem
+```
+$ target/release/dimacs --help
+Usage: dimacs [OPTIONS]
 
-- PPH is number of pigeons per holes
-- H is number of holes
-- `*` means that the two minutes timer has stopped the execution
-
-### Macbook air:
-
-| PPH | Holes | Python DPLL | Rust DPLL | Python CDCL | Rust CDCL | Minisat |
-|-----|-------|-------------|-----------|-------------|-----------|---------|
-|   1 |     1 |       0.101 |     0.110 |       0.095 |     0.314 |   0.764 |
-|   1 |     2 |       0.064 |     0.104 |       0.059 |     0.094 |   0.086 |
-|   1 |     3 |       0.064 |     0.066 |       0.059 |     0.057 |   0.068 |
-|   1 |     4 |       0.065 |     0.065 |       0.065 |     0.057 |   0.066 |
-|   1 |     5 |       0.071 |     0.065 |       0.097 |     0.061 |   0.066 |
-|   1 |     6 |       0.113 |     0.067 |       0.574 |     0.152 |   0.072 |
-|   1 |     7 |       0.387 |     0.089 |       6.887 |     5.128 |   0.091 |
-|   1 |     8 |       2.880 |     0.270 |     1:32.93 |         * |   0.172 |
-|   1 |     9 |      28.608 |     1.872 |           * |         * |   2.031 |
-|   1 |    10 |    4:49.660 |    17.923 |           * |         * | 1:10.53 |
-
-### AMD Computer:
-
-| PPH | Holes | Python DPLL | Rust DPLL | Python CDCL | Rust CDCL | Minisat |
-|-----|-------|-------------|-----------|-------------|-----------|---------|
-|   1 |     1 |       0.067 |     0.068 |       0.080 |     0.077 |  0.175  |
-|   1 |     2 |       0.060 |     0.069 |       0.072 |     0.073 |  0.128  |
-|   1 |     3 |       0.059 |     0.061 |       0.063 |     0.074 |  0.126  |
-|   1 |     4 |       0.073 |     0.064 |       0.085 |     0.077 |  0.131  |
-|   1 |     5 |       0.085 |     0.061 |       0.174 |     0.088 |  0.131  |
-|   1 |     6 |       0.233 |     0.070 |       1.650 |     0.503 |  0.141  |
-|   1 |     7 |       0.993 |     0.128 |             |    23.347 |  0.224  |
-|   1 |     8 |       8.053 |     0.601 |             |         * |  0.413  |
-|   1 |     9 |    1:24.850 |     4.977 |             |         * |  5.863  |
-|   1 |    10 |             |    49.848 |             |         * |      *  |
+Options:
+      --no-model        Hide model when satisfiable
+      --no-proof        Hide proof when unsatisfiable
+  -f, --from <FROM>     Read from file. If none, reads from stdin
+  -o, --out <OUT>       Output to file. If none, outputs to stdout
+  -d, --debug           Display information to stderr during solving
+      --disable-forget  Wether to use the forget euristic or not
+  -h, --help            Print help information
+  -V, --version         Print version information
+```
 

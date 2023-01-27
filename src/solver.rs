@@ -1,14 +1,3 @@
-// TODO:
-// - restart (DONE)
-// - proof or model (DONE)
-// - cvsids (DONE)
-// - command line (DONE)
-// - forget (DONE)
-// - subsumption
-// - implement forget in another module (WILL NOT)
-// - remove the field `learnt` in add_clause (DONE)
-// - remove todo list
-
 use std::collections::{HashMap, VecDeque, HashSet};
 use std::rc::Rc;
 use crate::types::*;
