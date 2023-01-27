@@ -3,6 +3,7 @@
 ## Compile
 
 Rust's package manager `cargo` is required.
+Rust version supported: `1.67.0`.
 
 To print stats about the solver process, the solver will read into `/proc/[pid]/stats`,
 hence only the linux operating system is supported.
