@@ -1,14 +1,11 @@
 # CDCL SAT Solver
 
-## Compile
+## Build
 
-Rust's package manager `cargo` is required.
 Rust version supported: `1.67.0`.
+Works only on linux.
 
-To print stats about the solver process, the solver will read into `/proc/[pid]/stats`,
-hence only the linux operating system is supported.
-
-1. Compile with `cargo build --bin dimacs --release`
+1. Compile: `cargo build --bin dimacs --release`
 2. Executable will be in `target/release/dimacs`
 
 ## Usage
